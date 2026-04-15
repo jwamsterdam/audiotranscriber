@@ -4,9 +4,10 @@ This project is a lightweight local desktop recorder and transcription strip.
 
 ## Current Phase
 
-Phase 2 is in progress. The app has a PySide6 UI, local WAV recording, a test tone input
+Phase 3 is in progress. The app has a PySide6 UI, local WAV recording, a test tone input
 for machines without a microphone, optional microphone input through `sounddevice`, a timer,
-audio level preview, and a collapsible transcript panel.
+audio level preview, a collapsible transcript panel, and chunked `faster-whisper`
+transcription.
 
 ## Architecture
 
@@ -43,10 +44,10 @@ Phase 2:
 
 Phase 3:
 
-- Add chunking pipeline.
-- Add background faster-whisper transcription.
-- Append confirmed transcript chunks.
-- Save draft/final transcript text.
+- Default config is `model=base`, `device=cpu`, `compute_type=int8`.
+- Chunk length is currently 15 seconds.
+- Transcripts are saved incrementally as `.txt` next to the selected audio file.
+- Dev samples in `dev_samples/` can be selected from the right-click menu.
 
 Phase 4:
 

@@ -6,7 +6,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtCore import QUrl
-from PySide6.QtGui import QAction, QDesktopServices, QFontMetrics
+from PySide6.QtGui import QAction, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QMainWindow,
     QMenu,
+    QTextEdit,
     QSizePolicy,
     QSpacerItem,
     QVBoxLayout,
@@ -118,12 +119,15 @@ class RecorderStripWindow(QMainWindow):
         panel_header.addWidget(self.preview_age)
         panel_header.addItem(QSpacerItem(20, 1, QSizePolicy.Policy.Expanding))
 
-        self.transcript_text = QLabel(self.transcript_panel)
+        self.transcript_text = QTextEdit(self.transcript_panel)
         self.transcript_text.setObjectName("transcriptText")
-        self.transcript_text.setWordWrap(True)
+        self.transcript_text.setReadOnly(True)
+        self.transcript_text.setAcceptRichText(False)
+        self.transcript_text.setFrameShape(QFrame.Shape.NoFrame)
+        self.transcript_text.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
         self.transcript_text.setSizePolicy(
             QSizePolicy.Policy.Preferred,
-            QSizePolicy.Policy.MinimumExpanding,
+            QSizePolicy.Policy.Expanding,
         )
 
         self.panel_layout.addLayout(panel_header)
@@ -146,7 +150,7 @@ class RecorderStripWindow(QMainWindow):
         self.waveform.set_status(state.status)
         self.waveform.set_level(state.audio_level)
         self.timer_label.setText(self._format_elapsed(state.elapsed_seconds))
-        self.transcript_text.setText(state.preview_text)
+        self._set_transcript_text(state.preview_text)
         self.expand_button.set_kind(IconKind.COLLAPSE if state.transcript_open else IconKind.EXPAND)
         self.strip.setProperty("expanded", state.transcript_open)
         self.strip.style().unpolish(self.strip)
@@ -162,7 +166,7 @@ class RecorderStripWindow(QMainWindow):
             self.preview_age.setText(f"({source}, WAV 16 kHz mono)")
         elif state.status == RecorderStatus.PROCESSING:
             age = state.last_update_seconds if state.last_update_seconds is not None else 0
-            self.preview_status.setText("Verwerken...")
+            self.preview_status.setText("Transcriberen...")
             self.preview_age.setText(f"(laatste update: {age}s geleden)")
         elif state.status == RecorderStatus.PAUSED:
             self.preview_status.setText("Gepauzeerd")
@@ -219,12 +223,20 @@ class RecorderStripWindow(QMainWindow):
         open_folder_action.triggered.connect(self._open_recordings_folder)
         menu.addAction(open_folder_action)
 
-        open_last_action = QAction("Open last WAV", menu)
+        open_last_action = QAction("Open selected audio", menu)
         open_last_action.setEnabled(
             self._controller is not None and self._controller.state.output_audio_path is not None
         )
         open_last_action.triggered.connect(self._open_last_recording)
         menu.addAction(open_last_action)
+
+        open_transcript_action = QAction("Open transcript TXT", menu)
+        open_transcript_action.setEnabled(
+            self._controller is not None
+            and self._controller.state.transcript_output_path is not None
+        )
+        open_transcript_action.triggered.connect(self._open_transcript)
+        menu.addAction(open_transcript_action)
         menu.addSeparator()
 
         select_sample_action = QAction("Select dev sample...", menu)
@@ -245,6 +257,20 @@ class RecorderStripWindow(QMainWindow):
         open_samples_action.setEnabled(self._controller is not None)
         open_samples_action.triggered.connect(self._open_dev_samples_folder)
         menu.addAction(open_samples_action)
+
+        transcribe_action = QAction("Transcribe selected audio", menu)
+        transcribe_action.setEnabled(
+            self._controller is not None
+            and self._controller.state.status != RecorderStatus.PROCESSING
+            and (
+                self._controller.state.output_audio_path is not None
+                or self._controller.state.selected_dev_sample_path is not None
+            )
+        )
+        transcribe_action.triggered.connect(
+            lambda: self._controller and self._controller.start_transcription()
+        )
+        menu.addAction(transcribe_action)
         menu.addSeparator()
 
         compact_action = QAction("Compact width", menu)
@@ -358,6 +384,32 @@ class RecorderStripWindow(QMainWindow):
                 font-weight: 500;
             }
 
+            QTextEdit#transcriptText {
+                background: transparent;
+                color: #ffffff;
+                border: none;
+                font-size: 17px;
+                font-weight: 500;
+                selection-background-color: rgba(255, 255, 255, 0.18);
+            }
+
+            QTextEdit#transcriptText QScrollBar:vertical {
+                background: transparent;
+                width: 8px;
+                margin: 0;
+            }
+
+            QTextEdit#transcriptText QScrollBar::handle:vertical {
+                background: rgba(255, 255, 255, 0.24);
+                border-radius: 4px;
+                min-height: 28px;
+            }
+
+            QTextEdit#transcriptText QScrollBar::add-line:vertical,
+            QTextEdit#transcriptText QScrollBar::sub-line:vertical {
+                height: 0;
+            }
+
             QMenu#contextMenu {
                 background: #151a1d;
                 color: #f7f8f8;
@@ -378,22 +430,7 @@ class RecorderStripWindow(QMainWindow):
         )
 
     def _expanded_panel_height(self) -> int:
-        margins = self.panel_layout.contentsMargins()
-        text_width = max(260, self.width() - margins.left() - margins.right())
-        metrics = QFontMetrics(self.transcript_text.font())
-        text_rect = metrics.boundingRect(
-            0,
-            0,
-            text_width,
-            1000,
-            Qt.TextFlag.TextWordWrap,
-            self.transcript_text.text(),
-        )
-        text_height = text_rect.height() + 18
-
-        header_height = max(32, self.preview_status.sizeHint().height())
-        desired_height = margins.top() + header_height + self.panel_layout.spacing() + text_height + margins.bottom()
-        return max(320, min(520, desired_height + 24))
+        return 380
 
     def _set_strip_width(self, width: int) -> None:
         self.resize(width, self.height())
@@ -413,6 +450,13 @@ class RecorderStripWindow(QMainWindow):
         if self._controller is None or self._controller.state.output_audio_path is None:
             return
         path = Path(self._controller.state.output_audio_path)
+        if path.exists():
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.resolve())))
+
+    def _open_transcript(self) -> None:
+        if self._controller is None or self._controller.state.transcript_output_path is None:
+            return
+        path = Path(self._controller.state.transcript_output_path)
         if path.exists():
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.resolve())))
 
@@ -437,6 +481,16 @@ class RecorderStripWindow(QMainWindow):
         path = self._controller.dev_samples_dir
         path.mkdir(parents=True, exist_ok=True)
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.resolve())))
+
+    def _set_transcript_text(self, text: str) -> None:
+        if self.transcript_text.toPlainText() == text:
+            return
+
+        scrollbar = self.transcript_text.verticalScrollBar()
+        was_at_bottom = scrollbar.value() >= scrollbar.maximum() - 4
+        self.transcript_text.setPlainText(text)
+        if was_at_bottom:
+            scrollbar.setValue(scrollbar.maximum())
 
     def _animate_panel_height(self, target_height: int) -> None:
         anchor = self.frameGeometry().topLeft()

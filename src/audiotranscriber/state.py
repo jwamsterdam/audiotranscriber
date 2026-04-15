@@ -27,6 +27,7 @@ class RecorderState:
     input_source: InputSource = InputSource.TEST_TONE
     audio_level: float = 0.0
     output_audio_path: str | None = None
+    transcript_output_path: str | None = None
     selected_dev_sample_path: str | None = None
     error_message: str | None = None
     preview_text: str = (

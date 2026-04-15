@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+from threading import Event, Thread
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
 from audiotranscriber.pipelines.recording import RecordingPipeline
+from audiotranscriber.pipelines.transcription import TranscriptionPipeline
 from audiotranscriber.state import InputSource, RecorderState, RecorderStatus
 
 SUPPORTED_DEV_SAMPLE_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg"}
@@ -18,12 +20,23 @@ class AppController(QObject):
 
     state_changed = Signal(object)
     level_detected = Signal(float)
+    transcription_progress = Signal(int, int, str, str)
+    transcription_finished = Signal(str)
+    transcription_failed = Signal(str)
+    transcription_cancelled = Signal(str)
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._state = RecorderState()
         self._recorder = RecordingPipeline(Path.cwd() / "recordings", self.level_detected.emit)
+        self._transcriber = TranscriptionPipeline()
+        self._transcription_cancel = Event()
+        self._transcription_thread: Thread | None = None
         self.level_detected.connect(self._set_audio_level)
+        self.transcription_progress.connect(self._handle_transcription_progress)
+        self.transcription_finished.connect(self._handle_transcription_finished)
+        self.transcription_failed.connect(self._handle_transcription_failed)
+        self.transcription_cancelled.connect(self._handle_transcription_cancelled)
 
         self._elapsed_timer = QTimer(self)
         self._elapsed_timer.setInterval(1000)
@@ -67,7 +80,11 @@ class AppController(QObject):
         )
 
     def select_dev_sample(self, path: Path) -> None:
-        if self._state.status in {RecorderStatus.RECORDING, RecorderStatus.PAUSED}:
+        if self._state.status in {
+            RecorderStatus.RECORDING,
+            RecorderStatus.PAUSED,
+            RecorderStatus.PROCESSING,
+        }:
             return
 
         resolved = path.resolve()
@@ -86,7 +103,9 @@ class AppController(QObject):
             transcript_open=True,
             preview_text=(
                 "Dev sample geselecteerd voor Phase 3 transcriptie:\n"
-                f"{resolved}"
+                f"{resolved}\n\n"
+                "Gebruik rechtermuisknop > Transcribe selected audio om dit bestand te "
+                "transcriberen. De rode opnameknop maakt een nieuwe opname."
             ),
         )
 
@@ -120,7 +139,7 @@ class AppController(QObject):
         return max(samples, key=lambda path: path.stat().st_mtime_ns)
 
     def record(self) -> None:
-        if self._state.status == RecorderStatus.RECORDING:
+        if self._state.status in {RecorderStatus.RECORDING, RecorderStatus.PROCESSING}:
             return
 
         self._processing_timer.stop()
@@ -151,6 +170,8 @@ class AppController(QObject):
             elapsed_seconds=0,
             last_update_seconds=None,
             output_audio_path=str(output_path),
+            transcript_output_path=None,
+            selected_dev_sample_path=None,
             error_message=None,
             preview_text=f"Opname loopt. Ruwe audio wordt opgeslagen als:\n{output_path}",
         )
@@ -166,6 +187,10 @@ class AppController(QObject):
             self._set_state(status=RecorderStatus.RECORDING)
 
     def stop(self) -> None:
+        if self._state.status == RecorderStatus.PROCESSING:
+            self.cancel_transcription()
+            return
+
         if self._state.status not in {RecorderStatus.RECORDING, RecorderStatus.PAUSED}:
             return
 
@@ -183,9 +208,69 @@ class AppController(QObject):
             output_audio_path=str(output_path) if output_path is not None else None,
             preview_text=preview,
         )
+        if output_path is not None:
+            self.start_transcription(Path(output_path))
+        else:
+            self._preview_age_timer.start()
+            self._processing_timer.setInterval(900)
+            self._processing_timer.start()
+
+    def start_transcription(self, audio_path: Path | None = None) -> None:
+        if self._state.status in {RecorderStatus.RECORDING, RecorderStatus.PAUSED}:
+            return
+        if self._transcription_thread and self._transcription_thread.is_alive():
+            return
+
+        target = audio_path or self._current_transcription_audio_path()
+        if target is None:
+            self._set_state(
+                error_message="Geen audio gekozen voor transcriptie.",
+                transcript_open=True,
+                preview_text=(
+                    "Geen audio gekozen. Neem eerst iets op of selecteer een dev sample."
+                ),
+            )
+            return
+
+        self._transcription_cancel.clear()
+        transcript_path = self._transcriber.transcript_path_for(target)
+        self._set_state(
+            status=RecorderStatus.PROCESSING,
+            transcript_open=True,
+            last_update_seconds=0,
+            error_message=None,
+            output_audio_path=str(target),
+            transcript_output_path=str(transcript_path),
+            preview_text=(
+                "Transcriptie voorbereiden...\n"
+                f"Model: {self._transcriber.config.model_name}, "
+                f"{self._transcriber.config.device}, {self._transcriber.config.compute_type}"
+            ),
+        )
         self._preview_age_timer.start()
-        self._processing_timer.setInterval(900)
-        self._processing_timer.start()
+
+        self._transcription_thread = Thread(
+            target=self._run_transcription,
+            args=(target,),
+            name="TranscriptionPipeline",
+            daemon=True,
+        )
+        self._transcription_thread.start()
+
+    def cancel_transcription(self) -> None:
+        if not (self._transcription_thread and self._transcription_thread.is_alive()):
+            self._set_state(status=RecorderStatus.IDLE, last_update_seconds=None, audio_level=0.0)
+            return
+
+        self._transcription_cancel.set()
+        self._set_state(
+            status=RecorderStatus.PROCESSING,
+            transcript_open=True,
+            preview_text=(
+                f"{self._state.preview_text}\n\nTranscriptie stoppen... "
+                "De huidige chunk wordt nog afgerond."
+            ),
+        )
 
     def _finish_processing(self) -> None:
         self._preview_age_timer.stop()
@@ -202,10 +287,105 @@ class AppController(QObject):
     def shutdown(self) -> None:
         if self._state.status in {RecorderStatus.RECORDING, RecorderStatus.PAUSED}:
             self._recorder.stop()
+        self._transcription_cancel.set()
 
     def _set_audio_level(self, level: float) -> None:
         if self._state.status == RecorderStatus.RECORDING:
             self._set_state(audio_level=level)
+
+    def _run_transcription(self, audio_path: Path) -> None:
+        try:
+            transcript_path = self._transcriber.transcribe(
+                audio_path,
+                on_progress=lambda current, total, text, path: self.transcription_progress.emit(
+                    current,
+                    total,
+                    text,
+                    str(path),
+                ),
+                cancel_event=self._transcription_cancel,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self.transcription_failed.emit(str(exc))
+            return
+
+        if self._transcription_cancel.is_set():
+            self.transcription_cancelled.emit(str(transcript_path))
+            return
+
+        self.transcription_finished.emit(str(transcript_path))
+
+    def _handle_transcription_progress(
+        self,
+        current_chunk: int,
+        total_chunks: int,
+        text: str,
+        transcript_path: str,
+    ) -> None:
+        self._set_state(
+            status=RecorderStatus.PROCESSING,
+            last_update_seconds=0,
+            transcript_output_path=transcript_path,
+            preview_text=(
+                text
+                or (
+                    f"Transcriberen chunk {current_chunk}/{total_chunks}...\n\n"
+                    "Nog geen spraak herkend in de verwerkte audio."
+                )
+            ),
+        )
+
+    def _handle_transcription_finished(self, transcript_path: str) -> None:
+        self._preview_age_timer.stop()
+        text = self._state.preview_text
+        if not text.strip() or "Nog geen spraak herkend" in text:
+            text = (
+                "Transcriptie voltooid, maar er is geen spraak herkend in deze audio.\n\n"
+                f"Transcript opgeslagen:\n{transcript_path}"
+            )
+        elif text.strip():
+            text = f"{text}\n\nTranscript opgeslagen:\n{transcript_path}"
+        else:
+            text = f"Transcript opgeslagen:\n{transcript_path}"
+        self._set_state(
+            status=RecorderStatus.IDLE,
+            last_update_seconds=None,
+            audio_level=0.0,
+            transcript_output_path=transcript_path,
+            preview_text=text,
+        )
+
+    def _handle_transcription_failed(self, error: str) -> None:
+        self._preview_age_timer.stop()
+        self._set_state(
+            status=RecorderStatus.IDLE,
+            last_update_seconds=None,
+            audio_level=0.0,
+            error_message=error,
+            preview_text=f"Transcriptie mislukt:\n{error}",
+            transcript_open=True,
+        )
+
+    def _handle_transcription_cancelled(self, transcript_path: str) -> None:
+        self._preview_age_timer.stop()
+        self._set_state(
+            status=RecorderStatus.IDLE,
+            last_update_seconds=None,
+            audio_level=0.0,
+            transcript_output_path=transcript_path,
+            preview_text=(
+                f"{self._state.preview_text}\n\nTranscriptie gestopt. "
+                f"Gedeeltelijke tekst opgeslagen:\n{transcript_path}"
+            ),
+            transcript_open=True,
+        )
+
+    def _current_transcription_audio_path(self) -> Path | None:
+        if self._state.selected_dev_sample_path:
+            return Path(self._state.selected_dev_sample_path)
+        if self._state.output_audio_path:
+            return Path(self._state.output_audio_path)
+        return None
 
     def _set_state(self, **changes: object) -> None:
         self._state = replace(self._state, **changes)

@@ -42,3 +42,15 @@ All notable changes to AudioTranscriber will be documented in this file.
 - Added a write lock around WAV writes and close to make stop/shutdown safer.
 - Kept the saved recording message visible after the short processing state.
 - Ignored `dev_samples/` and added context menu actions for selecting development audio samples.
+
+## 0.3.0 - Phase 3 Transcription MVP
+
+- Added chunked background transcription using `faster-whisper`.
+- Set default transcription config to `base`, `cpu`, and `int8`.
+- Added incremental `.txt` transcript saving next to the source audio.
+- Added context menu actions to transcribe selected audio and open the transcript file.
+- Automatically starts transcription after stopping a recording.
+- Clarified that dev samples are transcribed from the context menu, while the record button creates a new recording.
+- Added a clearer empty-transcript message when no speech is detected.
+- Made Stop cancel active transcription after the current chunk completes.
+- Replaced the transcript label with a scrollable read-only transcript viewport.
