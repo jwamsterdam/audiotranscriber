@@ -62,3 +62,4 @@ All notable changes to AudioTranscriber will be documented in this file.
 - Removed direct selected-audio transcription and width preset menu actions.
 - Simplified the context menu into input, dev sample, open, and close groups.
 - Styled context menu separators so group divider lines are visible.
+- Added PowerShell console logging for transcription start, chunk progress, completion, cancellation, and failures.

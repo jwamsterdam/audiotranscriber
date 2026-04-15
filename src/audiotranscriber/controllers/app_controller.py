@@ -246,6 +246,14 @@ class AppController(QObject):
                 f"{self._transcriber.config.device}, {self._transcriber.config.compute_type}"
             ),
         )
+        print(
+            "Starting transcription: "
+            f"{target} "
+            f"model={self._transcriber.config.model_name} "
+            f"device={self._transcriber.config.device} "
+            f"compute_type={self._transcriber.config.compute_type}",
+            flush=True,
+        )
         self._preview_age_timer.start()
 
         self._transcription_thread = Thread(
@@ -321,6 +329,17 @@ class AppController(QObject):
         text: str,
         transcript_path: str,
     ) -> None:
+        latest_text = text.rsplit("\n\n", maxsplit=1)[-1].strip() if text.strip() else ""
+        if latest_text:
+            print(
+                f"Transcription chunk {current_chunk}/{total_chunks}: {latest_text}",
+                flush=True,
+            )
+        else:
+            print(
+                f"Transcription chunk {current_chunk}/{total_chunks}: no speech detected yet",
+                flush=True,
+            )
         self._set_state(
             status=RecorderStatus.PROCESSING,
             last_update_seconds=0,
@@ -338,6 +357,7 @@ class AppController(QObject):
 
     def _handle_transcription_finished(self, transcript_path: str) -> None:
         self._preview_age_timer.stop()
+        print(f"Transcription finished: {transcript_path}", flush=True)
         text = self._state.preview_text
         if not text.strip() or "Nog geen spraak herkend" in text:
             text = (
@@ -360,6 +380,7 @@ class AppController(QObject):
 
     def _handle_transcription_failed(self, error: str) -> None:
         self._preview_age_timer.stop()
+        print(f"Transcription failed: {error}", flush=True)
         self._set_state(
             status=RecorderStatus.IDLE,
             last_update_seconds=None,
@@ -373,6 +394,7 @@ class AppController(QObject):
 
     def _handle_transcription_cancelled(self, transcript_path: str) -> None:
         self._preview_age_timer.stop()
+        print(f"Transcription cancelled. Partial transcript: {transcript_path}", flush=True)
         self._set_state(
             status=RecorderStatus.IDLE,
             last_update_seconds=None,
