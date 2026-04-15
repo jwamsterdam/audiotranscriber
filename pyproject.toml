@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "audiotranscriber"
+version = "0.1.0"
+description = "Compact local recording and transcription desktop strip."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "PySide6>=6.7",
+]
+
+[project.optional-dependencies]
+audio = [
+    "faster-whisper>=1.0",
+]
+
+[project.scripts]
+audiotranscriber = "audiotranscriber.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
