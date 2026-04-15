@@ -65,3 +65,9 @@ All notable changes to AudioTranscriber will be documented in this file.
 - Added PowerShell console logging for transcription start, chunk progress, completion, cancellation, and failures.
 - Added near-real-time chunk transcription while recording.
 - Final stop now waits for queued live chunks and saves the confirmed transcript.
+- Split live preview and final transcription timing: 4-second live chunks plus separate rolling 15-second final chunks while recording.
+- Stopped applying final-chunk corrections to the visible transcript during recording so the live text no longer shifts underneath the interviewer.
+- Final text replaces the quick live text only after Stop, once queued final chunks are drained and merged.
+- Changed final transcription to run as rolling chunks during recording instead of retranscribing the full WAV after Stop.
+- Stop now drains queued chunks, merges confirmed text, and lightly removes repeated boundary words.
+- Saved separate `*.live.txt` and `*.final.txt` files so live and final transcription quality can be compared directly.
