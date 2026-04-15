@@ -4,8 +4,9 @@ This project is a lightweight local desktop recorder and transcription strip.
 
 ## Current Phase
 
-Phase 1 is implemented only. The app has a PySide6 UI, dummy state transitions, a timer,
-animated waveform preview, and a collapsible transcript panel. It does not record audio yet.
+Phase 2 is in progress. The app has a PySide6 UI, local WAV recording, a test tone input
+for machines without a microphone, optional microphone input through `sounddevice`, a timer,
+audio level preview, and a collapsible transcript panel.
 
 ## Architecture
 
@@ -33,11 +34,10 @@ Keep the UI, recording pipeline, transcription pipeline, and controller responsi
 
 Phase 2:
 
-- Add real microphone recording.
-- Add record, pause, and stop behavior.
-- Add timestamp-based filenames.
-- Save raw audio safely.
-- Replace dummy waveform activity with real audio level activity.
+- Current raw format is WAV, 16 kHz, mono, 16-bit PCM.
+- Test tone input is available from the right-click menu.
+- Microphone input is available from the right-click menu where a device exists.
+- Recordings are saved in `recordings/` and should not be committed.
 
 Phase 3:
 

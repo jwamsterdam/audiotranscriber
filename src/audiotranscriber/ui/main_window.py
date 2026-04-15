@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from audiotranscriber.controllers.app_controller import AppController
-from audiotranscriber.state import RecorderState, RecorderStatus
+from audiotranscriber.state import InputSource, RecorderState, RecorderStatus
 from audiotranscriber.ui.widgets import (
     GREEN,
     RED,
@@ -143,6 +143,7 @@ class RecorderStripWindow(QMainWindow):
     def apply_state(self, state: RecorderState) -> None:
         self.status_dot.set_status(state.status)
         self.waveform.set_status(state.status)
+        self.waveform.set_level(state.audio_level)
         self.timer_label.setText(self._format_elapsed(state.elapsed_seconds))
         self.transcript_text.setText(state.preview_text)
         self.expand_button.set_kind(IconKind.COLLAPSE if state.transcript_open else IconKind.EXPAND)
@@ -156,7 +157,8 @@ class RecorderStripWindow(QMainWindow):
 
         if state.status == RecorderStatus.RECORDING:
             self.preview_status.setText("Opnemen...")
-            self.preview_age.setText("(preview volgt per chunk)")
+            source = "testtoon" if state.input_source == InputSource.TEST_TONE else "microfoon"
+            self.preview_age.setText(f"({source}, WAV 16 kHz mono)")
         elif state.status == RecorderStatus.PROCESSING:
             age = state.last_update_seconds if state.last_update_seconds is not None else 0
             self.preview_status.setText("Verwerken...")
@@ -189,6 +191,29 @@ class RecorderStripWindow(QMainWindow):
         menu = QMenu(self)
         menu.setObjectName("contextMenu")
 
+        test_tone_action = QAction("Use test tone input", menu)
+        test_tone_action.setCheckable(True)
+        test_tone_action.setChecked(
+            self._controller is not None
+            and self._controller.state.input_source == InputSource.TEST_TONE
+        )
+        test_tone_action.triggered.connect(
+            lambda: self._controller and self._controller.set_input_source(InputSource.TEST_TONE)
+        )
+        menu.addAction(test_tone_action)
+
+        microphone_action = QAction("Use microphone input", menu)
+        microphone_action.setCheckable(True)
+        microphone_action.setChecked(
+            self._controller is not None
+            and self._controller.state.input_source == InputSource.MICROPHONE
+        )
+        microphone_action.triggered.connect(
+            lambda: self._controller and self._controller.set_input_source(InputSource.MICROPHONE)
+        )
+        menu.addAction(microphone_action)
+        menu.addSeparator()
+
         compact_action = QAction("Compact width", menu)
         compact_action.triggered.connect(lambda: self._set_strip_width(COMPACT_WIDTH))
         menu.addAction(compact_action)
@@ -216,6 +241,8 @@ class RecorderStripWindow(QMainWindow):
         super().keyPressEvent(event)
 
     def closeEvent(self, event) -> None:  # noqa: N802
+        if self._controller is not None:
+            self._controller.shutdown()
         app = QApplication.instance()
         if app is not None:
             app.quit()

@@ -2,16 +2,24 @@
 
 Compact local recording and transcription strip for desktop interviews and conversations.
 
-## Phase 1
+## Phase 1 / 2
 
-This checkpoint implements the PySide6 visual MVP only:
+This checkpoint implements the PySide6 visual MVP plus Phase 2 recording basics:
 
 - Floating compact strip with dark rounded styling.
 - Collapsible transcript panel below the strip.
 - Idle, recording, paused, and processing states.
 - Green idle, blinking red recording, yellow processing/paused indicators.
-- Timer and lightweight animated waveform preview.
-- Dummy state transitions only. No real audio is recorded in Phase 1.
+- Timer and lightweight waveform preview.
+- Timestamped raw WAV recording to `recordings/`.
+- Test tone input for machines without a microphone.
+- Microphone input option for machines with a local input device.
+
+Phase 2 raw audio format:
+
+```text
+WAV, 16 kHz, mono, 16-bit PCM
+```
 
 ## Run
 
@@ -58,6 +66,6 @@ python -m audiotranscriber.main
 
 ## Phase Notes
 
-Phase 2 should add real recording, pause/stop behavior, timestamped output paths, and a real audio level indicator.
+Phase 2 now has raw WAV recording, pause/stop behavior, timestamped output paths, test tone input, microphone input, and a real audio level indicator.
 Phase 3 should add chunking plus faster-whisper background transcription.
 Phase 4 should finalize MP3 export, error handling, settings, and packaging preparation.

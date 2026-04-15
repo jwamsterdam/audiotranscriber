@@ -90,6 +90,7 @@ class WaveformWidget(QWidget):
         super().__init__(parent)
         self._status = RecorderStatus.IDLE
         self._phase = 0.0
+        self._level = 0.0
         self._timer = QTimer(self)
         self._timer.setInterval(90)
         self._timer.timeout.connect(self._advance)
@@ -103,6 +104,10 @@ class WaveformWidget(QWidget):
             self._timer.start()
         else:
             self._timer.stop()
+        self.update()
+
+    def set_level(self, level: float) -> None:
+        self._level = max(0.0, min(1.0, level))
         self.update()
 
     def _advance(self) -> None:
@@ -128,7 +133,8 @@ class WaveformWidget(QWidget):
 
             seed = math.sin(index * 1.7) * 0.5 + math.sin(index * 0.43) * 0.5
             motion = math.sin(self._phase + index * 0.62)
-            height = 8 + abs(seed + motion * 0.55) * 17
+            level_boost = 0.25 + self._level * 1.35
+            height = 7 + abs(seed + motion * 0.55) * 15 * level_boost
 
             color = self._bar_color(index, bars)
             if self._status in {RecorderStatus.IDLE, RecorderStatus.PAUSED}:

@@ -3,6 +3,9 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+# Local recordings
+recordings/
+
 # C extensions
 *.so
 

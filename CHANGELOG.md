@@ -26,3 +26,13 @@ All notable changes to AudioTranscriber will be documented in this file.
 - Made closing the UI explicitly quit the Qt app so PowerShell returns to the prompt.
 - Increased the expanded transcript panel's measured height so wrapped preview text remains readable.
 - Added a dependency-free dev watcher for restart-on-save UI iteration.
+
+## 0.2.0 - Phase 2 Recording MVP
+
+- Added timestamped raw WAV recording to `recordings/`.
+- Added built-in test tone input for machines without a microphone.
+- Added microphone input support through `sounddevice`.
+- Added pause/resume behavior that pauses writing audio frames.
+- Replaced dummy waveform behavior with level updates from incoming audio buffers.
+- Added right-click input source switching between test tone and microphone.
+- Ignored local recording outputs in `.gitignore`.
