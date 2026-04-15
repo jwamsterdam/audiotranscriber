@@ -170,7 +170,14 @@ class RecorderStripWindow(QMainWindow):
                 InputSource.MICROPHONE: "microfoon",
                 InputSource.DEV_SAMPLE: "dev sample",
             }[state.input_source]
-            self.preview_age.setText(f"({source}, WAV 16 kHz mono)")
+            if state.transcription_total_chunks:
+                live_progress = (
+                    f", live chunk {state.transcription_current_chunk}/"
+                    f"{state.transcription_total_chunks}"
+                )
+            else:
+                live_progress = ""
+            self.preview_age.setText(f"({source}, WAV 16 kHz mono{live_progress})")
         elif state.status == RecorderStatus.PROCESSING:
             age = state.last_update_seconds if state.last_update_seconds is not None else 0
             if state.transcription_total_chunks:

@@ -22,6 +22,7 @@ This checkpoint implements the PySide6 visual MVP plus Phase 2 recording basics:
 - Transcript panel uses a scrollable viewport during long transcripts.
 - Right-click playback for the selected dev sample.
 - Dev samples can be used as a recording input source for end-to-end testing.
+- Near-real-time transcript preview updates from completed chunks while recording.
 
 Phase 2 raw audio format:
 

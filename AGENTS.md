@@ -49,6 +49,7 @@ Phase 3:
 - Transcripts are saved incrementally as `.txt` next to the recorded audio file.
 - Dev samples in `dev_samples/` can be selected from the right-click menu.
 - Dev samples can be used directly as an input source for end-to-end recording/transcription tests.
+- Near-real-time preview is chunk-based and updates from completed chunks while recording.
 
 Phase 4:
 

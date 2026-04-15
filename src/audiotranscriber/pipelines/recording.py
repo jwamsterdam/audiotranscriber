@@ -21,18 +21,29 @@ CHUNK_FRAMES = int(SAMPLE_RATE * CHUNK_SECONDS)
 MAX_INT16 = 32767
 
 LevelCallback = Callable[[float], None]
+ChunkCallback = Callable[[bytes, int], None]
+LIVE_CHUNK_SECONDS = 8
+LIVE_CHUNK_BYTES = SAMPLE_RATE * LIVE_CHUNK_SECONDS * SAMPLE_WIDTH_BYTES
 
 
 class RecordingPipeline:
     """Record microphone or generated test audio to a timestamped WAV file."""
 
-    def __init__(self, output_dir: Path, on_level: LevelCallback) -> None:
+    def __init__(
+        self,
+        output_dir: Path,
+        on_level: LevelCallback,
+        on_chunk: ChunkCallback | None = None,
+    ) -> None:
         self._output_dir = output_dir
         self._on_level = on_level
+        self._on_chunk = on_chunk
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._pause_event = threading.Event()
         self._write_lock = threading.Lock()
+        self._chunk_buffer = bytearray()
+        self._chunk_index = 0
         self._wave_file: wave.Wave_write | None = None
         self._output_path: Path | None = None
         self._source = InputSource.TEST_TONE
@@ -57,6 +68,8 @@ class RecordingPipeline:
 
         self._stop_event.clear()
         self._pause_event.clear()
+        self._chunk_buffer = bytearray()
+        self._chunk_index = 0
         self._output_dir.mkdir(parents=True, exist_ok=True)
         self._output_path = self._output_dir / self._timestamped_name()
 
@@ -95,6 +108,7 @@ class RecordingPipeline:
         self._stop_event.set()
         if self._thread:
             self._thread.join(timeout=3)
+        self._flush_live_chunk()
         self._close_wave()
         self._on_level(0.0)
         return self._output_path
@@ -163,9 +177,36 @@ class RecordingPipeline:
         self._on_level(0.0)
 
     def _write_frames(self, frames: bytes) -> None:
+        chunks_to_emit: list[tuple[bytes, int]] = []
         with self._write_lock:
             if self._wave_file is not None:
                 self._wave_file.writeframes(frames)
+            if self._on_chunk is not None:
+                self._chunk_buffer.extend(frames)
+                while len(self._chunk_buffer) >= LIVE_CHUNK_BYTES:
+                    self._chunk_index += 1
+                    chunk = bytes(self._chunk_buffer[:LIVE_CHUNK_BYTES])
+                    del self._chunk_buffer[:LIVE_CHUNK_BYTES]
+                    chunks_to_emit.append((chunk, self._chunk_index))
+
+        for chunk, chunk_index in chunks_to_emit:
+            self._on_chunk(chunk, chunk_index)
+
+    def _flush_live_chunk(self) -> None:
+        if self._on_chunk is None:
+            return
+
+        chunk = None
+        chunk_index = 0
+        with self._write_lock:
+            if self._chunk_buffer:
+                self._chunk_index += 1
+                chunk_index = self._chunk_index
+                chunk = bytes(self._chunk_buffer)
+                self._chunk_buffer.clear()
+
+        if chunk:
+            self._on_chunk(chunk, chunk_index)
 
     def _close_wave(self) -> None:
         with self._write_lock:

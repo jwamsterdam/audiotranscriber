@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from threading import Event
 
+import numpy as np
+
 
 DEFAULT_MODEL_NAME = "base"
 DEFAULT_DEVICE = "cpu"
@@ -86,6 +88,19 @@ class TranscriptionPipeline:
             on_progress(chunk_index, total_chunks, "\n\n".join(confirmed_text), transcript_path)
 
         return transcript_path
+
+    def transcribe_pcm16_chunk(self, pcm_bytes: bytes) -> str:
+        if not pcm_bytes:
+            return ""
+
+        model = self._load_model()
+        audio = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+        segments, _info = model.transcribe(
+            audio,
+            beam_size=1,
+            vad_filter=False,
+        )
+        return " ".join(segment.text.strip() for segment in segments).strip()
 
     def _load_model(self):  # noqa: ANN202
         if self._model is None:

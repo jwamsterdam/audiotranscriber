@@ -63,3 +63,5 @@ All notable changes to AudioTranscriber will be documented in this file.
 - Simplified the context menu into input, dev sample, open, and close groups.
 - Styled context menu separators so group divider lines are visible.
 - Added PowerShell console logging for transcription start, chunk progress, completion, cancellation, and failures.
+- Added near-real-time chunk transcription while recording.
+- Final stop now waits for queued live chunks and saves the confirmed transcript.
