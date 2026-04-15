@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QFontMetrics
+from PySide6.QtCore import QUrl
+from PySide6.QtGui import QAction, QDesktopServices, QFontMetrics
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
@@ -211,6 +214,18 @@ class RecorderStripWindow(QMainWindow):
         menu.addAction(microphone_action)
         menu.addSeparator()
 
+        open_folder_action = QAction("Open recordings folder", menu)
+        open_folder_action.triggered.connect(self._open_recordings_folder)
+        menu.addAction(open_folder_action)
+
+        open_last_action = QAction("Open last WAV", menu)
+        open_last_action.setEnabled(
+            self._controller is not None and self._controller.state.output_audio_path is not None
+        )
+        open_last_action.triggered.connect(self._open_last_recording)
+        menu.addAction(open_last_action)
+        menu.addSeparator()
+
         compact_action = QAction("Compact width", menu)
         compact_action.triggered.connect(lambda: self._set_strip_width(COMPACT_WIDTH))
         menu.addAction(compact_action)
@@ -365,6 +380,20 @@ class RecorderStripWindow(QMainWindow):
             panel_height = self._expanded_panel_height()
             self.transcript_panel.setMaximumHeight(panel_height)
             self.setFixedHeight(self.strip.height() + panel_height)
+
+    def _open_recordings_folder(self) -> None:
+        if self._controller is None:
+            return
+        path = self._controller.recordings_dir
+        path.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.resolve())))
+
+    def _open_last_recording(self) -> None:
+        if self._controller is None or self._controller.state.output_audio_path is None:
+            return
+        path = Path(self._controller.state.output_audio_path)
+        if path.exists():
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.resolve())))
 
     def _animate_panel_height(self, target_height: int) -> None:
         anchor = self.frameGeometry().topLeft()

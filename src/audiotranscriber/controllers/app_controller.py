@@ -1,4 +1,4 @@
-"""Phase 1 controller with honest dummy state transitions."""
+"""App controller for recording state and Phase 2 audio capture."""
 
 from __future__ import annotations
 
@@ -40,6 +40,10 @@ class AppController(QObject):
     def state(self) -> RecorderState:
         return self._state
 
+    @property
+    def recordings_dir(self) -> Path:
+        return self._recorder.output_dir
+
     def emit_current_state(self) -> None:
         self.state_changed.emit(self._state)
 
@@ -49,7 +53,12 @@ class AppController(QObject):
     def set_input_source(self, source: InputSource) -> None:
         if self._state.status in {RecorderStatus.RECORDING, RecorderStatus.PAUSED}:
             return
-        self._set_state(input_source=source, error_message=None)
+        label = "testtoon" if source == InputSource.TEST_TONE else "microfoon"
+        self._set_state(
+            input_source=source,
+            error_message=None,
+            preview_text=f"Invoer ingesteld op {label}. Klaar voor opname.",
+        )
 
     def record(self) -> None:
         if self._state.status == RecorderStatus.RECORDING:
@@ -121,7 +130,7 @@ class AppController(QObject):
 
     def _finish_processing(self) -> None:
         self._preview_age_timer.stop()
-        self._set_state(status=RecorderStatus.IDLE, last_update_seconds=None)
+        self._set_state(status=RecorderStatus.IDLE, last_update_seconds=None, audio_level=0.0)
 
     def _tick_elapsed(self) -> None:
         self._set_state(elapsed_seconds=self._state.elapsed_seconds + 1)

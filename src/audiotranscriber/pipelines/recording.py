@@ -32,9 +32,14 @@ class RecordingPipeline:
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._pause_event = threading.Event()
+        self._write_lock = threading.Lock()
         self._wave_file: wave.Wave_write | None = None
         self._output_path: Path | None = None
         self._source = InputSource.TEST_TONE
+
+    @property
+    def output_dir(self) -> Path:
+        return self._output_dir
 
     @property
     def output_path(self) -> Path | None:
@@ -125,13 +130,15 @@ class RecordingPipeline:
                 time.sleep(CHUNK_SECONDS)
 
     def _write_frames(self, frames: bytes) -> None:
-        if self._wave_file is not None:
-            self._wave_file.writeframes(frames)
+        with self._write_lock:
+            if self._wave_file is not None:
+                self._wave_file.writeframes(frames)
 
     def _close_wave(self) -> None:
-        if self._wave_file is not None:
-            self._wave_file.close()
-            self._wave_file = None
+        with self._write_lock:
+            if self._wave_file is not None:
+                self._wave_file.close()
+                self._wave_file = None
 
     @staticmethod
     def _timestamped_name() -> str:

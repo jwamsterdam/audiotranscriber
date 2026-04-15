@@ -14,6 +14,7 @@ This checkpoint implements the PySide6 visual MVP plus Phase 2 recording basics:
 - Timestamped raw WAV recording to `recordings/`.
 - Test tone input for machines without a microphone.
 - Microphone input option for machines with a local input device.
+- Right-click actions to open the recordings folder or the last saved WAV.
 
 Phase 2 raw audio format:
 

@@ -38,3 +38,6 @@ All notable changes to AudioTranscriber will be documented in this file.
 - Ignored local recording outputs in `.gitignore`.
 - Anchored transcript expansion so the strip stays fixed while the panel opens below it.
 - Removed the duplicate collapse button from the transcript panel.
+- Added context menu actions to open the recordings folder and last saved WAV.
+- Added a write lock around WAV writes and close to make stop/shutdown safer.
+- Kept the saved recording message visible after the short processing state.
