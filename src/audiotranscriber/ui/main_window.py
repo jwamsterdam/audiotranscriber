@@ -54,6 +54,7 @@ class RecorderStripWindow(QMainWindow):
         self.setMinimumWidth(680)
         self.setMaximumWidth(1040)
         self.resize(COMPACT_WIDTH, 64)
+        self.setFixedHeight(64)
 
         root = QWidget(self)
         root.setObjectName("root")
@@ -113,10 +114,6 @@ class RecorderStripWindow(QMainWindow):
         panel_header.addWidget(self.preview_age)
         panel_header.addItem(QSpacerItem(20, 1, QSizePolicy.Policy.Expanding))
 
-        self.panel_collapse_button = StripIconButton(IconKind.COLLAPSE, self.transcript_panel)
-        self.panel_collapse_button.setFixedSize(34, 28)
-        panel_header.addWidget(self.panel_collapse_button)
-
         self.transcript_text = QLabel(self.transcript_panel)
         self.transcript_text.setObjectName("transcriptText")
         self.transcript_text.setWordWrap(True)
@@ -153,7 +150,7 @@ class RecorderStripWindow(QMainWindow):
 
         panel_target = self._expanded_panel_height() if state.transcript_open else 0
         if self.transcript_panel.maximumHeight() != panel_target:
-            self._height_animation = animate_height(self.transcript_panel, panel_target)
+            self._animate_panel_height(panel_target)
 
         if state.status == RecorderStatus.RECORDING:
             self.preview_status.setText("Opnemen...")
@@ -253,9 +250,6 @@ class RecorderStripWindow(QMainWindow):
         self.pause_button.clicked.connect(lambda: self._controller and self._controller.pause())
         self.stop_button.clicked.connect(lambda: self._controller and self._controller.stop())
         self.expand_button.clicked.connect(lambda: self._controller and self._controller.toggle_transcript())
-        self.panel_collapse_button.clicked.connect(
-            lambda: self._controller and self._controller.toggle_transcript()
-        )
 
     def _set_status_color(self, status: RecorderStatus) -> None:
         if status == RecorderStatus.RECORDING:
@@ -368,11 +362,23 @@ class RecorderStripWindow(QMainWindow):
     def _set_strip_width(self, width: int) -> None:
         self.resize(width, self.height())
         if self._controller and self._controller.state.transcript_open:
-            self._height_animation = animate_height(
-                self.transcript_panel,
-                self._expanded_panel_height(),
-                duration_ms=120,
-            )
+            panel_height = self._expanded_panel_height()
+            self.transcript_panel.setMaximumHeight(panel_height)
+            self.setFixedHeight(self.strip.height() + panel_height)
+
+    def _animate_panel_height(self, target_height: int) -> None:
+        anchor = self.frameGeometry().topLeft()
+        self._height_animation = animate_height(self.transcript_panel, target_height)
+        self._height_animation.valueChanged.connect(
+            lambda value: self._sync_window_height(int(value), anchor)
+        )
+        self._height_animation.finished.connect(
+            lambda: self._sync_window_height(target_height, anchor)
+        )
+
+    def _sync_window_height(self, panel_height: int, anchor) -> None:  # noqa: ANN001
+        self.setFixedHeight(self.strip.height() + max(0, panel_height))
+        self.move(anchor)
 
     @staticmethod
     def _format_elapsed(seconds: int) -> str:

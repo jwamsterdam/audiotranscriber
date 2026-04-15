@@ -36,3 +36,5 @@ All notable changes to AudioTranscriber will be documented in this file.
 - Replaced dummy waveform behavior with level updates from incoming audio buffers.
 - Added right-click input source switching between test tone and microphone.
 - Ignored local recording outputs in `.gitignore`.
+- Anchored transcript expansion so the strip stays fixed while the panel opens below it.
+- Removed the duplicate collapse button from the transcript panel.
