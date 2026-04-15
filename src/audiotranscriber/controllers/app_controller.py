@@ -10,6 +10,8 @@ from PySide6.QtCore import QObject, QTimer, Signal
 from audiotranscriber.pipelines.recording import RecordingPipeline
 from audiotranscriber.state import InputSource, RecorderState, RecorderStatus
 
+SUPPORTED_DEV_SAMPLE_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg"}
+
 
 class AppController(QObject):
     """Owns app state until real audio/transcription services arrive in later phases."""
@@ -44,6 +46,10 @@ class AppController(QObject):
     def recordings_dir(self) -> Path:
         return self._recorder.output_dir
 
+    @property
+    def dev_samples_dir(self) -> Path:
+        return Path.cwd() / "dev_samples"
+
     def emit_current_state(self) -> None:
         self.state_changed.emit(self._state)
 
@@ -59,6 +65,59 @@ class AppController(QObject):
             error_message=None,
             preview_text=f"Invoer ingesteld op {label}. Klaar voor opname.",
         )
+
+    def select_dev_sample(self, path: Path) -> None:
+        if self._state.status in {RecorderStatus.RECORDING, RecorderStatus.PAUSED}:
+            return
+
+        resolved = path.resolve()
+        if not resolved.exists():
+            self._set_state(
+                error_message="Dev sample bestaat niet.",
+                preview_text=f"Dev sample niet gevonden:\n{resolved}",
+                transcript_open=True,
+            )
+            return
+
+        self._set_state(
+            selected_dev_sample_path=str(resolved),
+            output_audio_path=str(resolved),
+            error_message=None,
+            transcript_open=True,
+            preview_text=(
+                "Dev sample geselecteerd voor Phase 3 transcriptie:\n"
+                f"{resolved}"
+            ),
+        )
+
+    def select_latest_dev_sample(self) -> None:
+        sample = self.latest_dev_sample()
+        if sample is None:
+            self._set_state(
+                error_message="Geen dev sample gevonden.",
+                preview_text=(
+                    "Geen audio sample gevonden in dev_samples/. Voeg een MP3, WAV, M4A, "
+                    "AAC, FLAC of OGG toe."
+                ),
+                transcript_open=True,
+            )
+            return
+
+        self.select_dev_sample(sample)
+
+    def latest_dev_sample(self) -> Path | None:
+        if not self.dev_samples_dir.exists():
+            return None
+
+        samples = [
+            path
+            for path in self.dev_samples_dir.iterdir()
+            if path.is_file() and path.suffix.lower() in SUPPORTED_DEV_SAMPLE_EXTENSIONS
+        ]
+        if not samples:
+            return None
+
+        return max(samples, key=lambda path: path.stat().st_mtime_ns)
 
     def record(self) -> None:
         if self._state.status == RecorderStatus.RECORDING:

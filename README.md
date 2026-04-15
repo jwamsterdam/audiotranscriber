@@ -15,12 +15,16 @@ This checkpoint implements the PySide6 visual MVP plus Phase 2 recording basics:
 - Test tone input for machines without a microphone.
 - Microphone input option for machines with a local input device.
 - Right-click actions to open the recordings folder or the last saved WAV.
+- Dev sample selection from ignored `dev_samples/` for Phase 3 transcription work.
 
 Phase 2 raw audio format:
 
 ```text
 WAV, 16 kHz, mono, 16-bit PCM
 ```
+
+Development audio samples can be placed in `dev_samples/`. That folder is ignored by git.
+Use the app's right-click menu to select a sample or use the latest sample.
 
 ## Run
 

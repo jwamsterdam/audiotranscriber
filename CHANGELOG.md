@@ -41,3 +41,4 @@ All notable changes to AudioTranscriber will be documented in this file.
 - Added context menu actions to open the recordings folder and last saved WAV.
 - Added a write lock around WAV writes and close to make stop/shutdown safer.
 - Kept the saved recording message visible after the short processing state.
+- Ignored `dev_samples/` and added context menu actions for selecting development audio samples.

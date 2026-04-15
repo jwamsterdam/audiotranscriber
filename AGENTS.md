@@ -38,6 +38,8 @@ Phase 2:
 - Test tone input is available from the right-click menu.
 - Microphone input is available from the right-click menu where a device exists.
 - Recordings are saved in `recordings/` and should not be committed.
+- Development audio samples live in `dev_samples/` and should not be committed.
+- The UI can select a dev sample from the right-click menu for Phase 3 transcription work.
 
 Phase 3:
 

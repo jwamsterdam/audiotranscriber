@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QFileDialog,
     QMainWindow,
     QMenu,
     QSizePolicy,
@@ -226,6 +227,26 @@ class RecorderStripWindow(QMainWindow):
         menu.addAction(open_last_action)
         menu.addSeparator()
 
+        select_sample_action = QAction("Select dev sample...", menu)
+        select_sample_action.setEnabled(self._controller is not None)
+        select_sample_action.triggered.connect(self._select_dev_sample)
+        menu.addAction(select_sample_action)
+
+        latest_sample_action = QAction("Use latest dev sample", menu)
+        latest_sample_action.setEnabled(
+            self._controller is not None and self._controller.latest_dev_sample() is not None
+        )
+        latest_sample_action.triggered.connect(
+            lambda: self._controller and self._controller.select_latest_dev_sample()
+        )
+        menu.addAction(latest_sample_action)
+
+        open_samples_action = QAction("Open dev samples folder", menu)
+        open_samples_action.setEnabled(self._controller is not None)
+        open_samples_action.triggered.connect(self._open_dev_samples_folder)
+        menu.addAction(open_samples_action)
+        menu.addSeparator()
+
         compact_action = QAction("Compact width", menu)
         compact_action.triggered.connect(lambda: self._set_strip_width(COMPACT_WIDTH))
         menu.addAction(compact_action)
@@ -394,6 +415,28 @@ class RecorderStripWindow(QMainWindow):
         path = Path(self._controller.state.output_audio_path)
         if path.exists():
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.resolve())))
+
+    def _select_dev_sample(self) -> None:
+        if self._controller is None:
+            return
+
+        samples_dir = self._controller.dev_samples_dir
+        samples_dir.mkdir(parents=True, exist_ok=True)
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select dev audio sample",
+            str(samples_dir.resolve()),
+            "Audio files (*.mp3 *.wav *.m4a *.aac *.flac *.ogg)",
+        )
+        if file_path:
+            self._controller.select_dev_sample(Path(file_path))
+
+    def _open_dev_samples_folder(self) -> None:
+        if self._controller is None:
+            return
+        path = self._controller.dev_samples_dir
+        path.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.resolve())))
 
     def _animate_panel_height(self, target_height: int) -> None:
         anchor = self.frameGeometry().topLeft()
