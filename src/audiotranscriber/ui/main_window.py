@@ -7,6 +7,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtCore import QUrl
 from PySide6.QtGui import QAction, QDesktopServices
+from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
@@ -35,9 +36,7 @@ from audiotranscriber.ui.widgets import (
     animate_height,
 )
 
-COMPACT_WIDTH = 740
-COMFORTABLE_WIDTH = 820
-WIDE_WIDTH = 980
+DEFAULT_WIDTH = 740
 
 
 class RecorderStripWindow(QMainWindow):
@@ -48,6 +47,10 @@ class RecorderStripWindow(QMainWindow):
         self._controller: AppController | None = None
         self._height_animation = None
         self._drag_position = None
+        self._audio_output = QAudioOutput(self)
+        self._audio_output.setVolume(0.8)
+        self._media_player = QMediaPlayer(self)
+        self._media_player.setAudioOutput(self._audio_output)
 
         self.setWindowTitle("AudioTranscriber")
         self.setWindowFlags(
@@ -58,7 +61,7 @@ class RecorderStripWindow(QMainWindow):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setMinimumWidth(680)
         self.setMaximumWidth(1040)
-        self.resize(COMPACT_WIDTH, 64)
+        self.resize(DEFAULT_WIDTH, 64)
         self.setFixedHeight(64)
 
         root = QWidget(self)
@@ -162,12 +165,23 @@ class RecorderStripWindow(QMainWindow):
 
         if state.status == RecorderStatus.RECORDING:
             self.preview_status.setText("Opnemen...")
-            source = "testtoon" if state.input_source == InputSource.TEST_TONE else "microfoon"
+            source = {
+                InputSource.TEST_TONE: "testtoon",
+                InputSource.MICROPHONE: "microfoon",
+                InputSource.DEV_SAMPLE: "dev sample",
+            }[state.input_source]
             self.preview_age.setText(f"({source}, WAV 16 kHz mono)")
         elif state.status == RecorderStatus.PROCESSING:
             age = state.last_update_seconds if state.last_update_seconds is not None else 0
+            if state.transcription_total_chunks:
+                progress = (
+                    f"chunk {state.transcription_current_chunk}/"
+                    f"{state.transcription_total_chunks}"
+                )
+            else:
+                progress = "model laden"
             self.preview_status.setText("Transcriberen...")
-            self.preview_age.setText(f"(laatste update: {age}s geleden)")
+            self.preview_age.setText(f"({progress}, laatste update: {age}s geleden)")
         elif state.status == RecorderStatus.PAUSED:
             self.preview_status.setText("Gepauzeerd")
             self.preview_age.setText("(opname tijdelijk stilgezet)")
@@ -217,13 +231,43 @@ class RecorderStripWindow(QMainWindow):
             lambda: self._controller and self._controller.set_input_source(InputSource.MICROPHONE)
         )
         menu.addAction(microphone_action)
+
+        dev_sample_input_action = QAction("Use dev sample input", menu)
+        dev_sample_input_action.setCheckable(True)
+        dev_sample_input_action.setChecked(
+            self._controller is not None
+            and self._controller.state.input_source == InputSource.DEV_SAMPLE
+        )
+        dev_sample_input_action.setEnabled(self._controller is not None)
+        dev_sample_input_action.triggered.connect(
+            lambda: self._controller and self._controller.set_input_source(InputSource.DEV_SAMPLE)
+        )
+        menu.addAction(dev_sample_input_action)
+        menu.addSeparator()
+
+        select_sample_action = QAction("Select dev sample", menu)
+        select_sample_action.setEnabled(self._controller is not None)
+        select_sample_action.triggered.connect(self._select_dev_sample)
+        menu.addAction(select_sample_action)
+
+        play_sample_action = QAction("Play dev sample", menu)
+        play_sample_action.setEnabled(self._dev_sample_path() is not None)
+        play_sample_action.triggered.connect(self._play_dev_sample)
+        menu.addAction(play_sample_action)
+
+        stop_sample_action = QAction("Stop dev sample", menu)
+        stop_sample_action.setEnabled(
+            self._media_player.playbackState() != QMediaPlayer.PlaybackState.StoppedState
+        )
+        stop_sample_action.triggered.connect(self._media_player.stop)
+        menu.addAction(stop_sample_action)
         menu.addSeparator()
 
         open_folder_action = QAction("Open recordings folder", menu)
         open_folder_action.triggered.connect(self._open_recordings_folder)
         menu.addAction(open_folder_action)
 
-        open_last_action = QAction("Open selected audio", menu)
+        open_last_action = QAction("Open last recording", menu)
         open_last_action.setEnabled(
             self._controller is not None and self._controller.state.output_audio_path is not None
         )
@@ -237,53 +281,7 @@ class RecorderStripWindow(QMainWindow):
         )
         open_transcript_action.triggered.connect(self._open_transcript)
         menu.addAction(open_transcript_action)
-        menu.addSeparator()
 
-        select_sample_action = QAction("Select dev sample...", menu)
-        select_sample_action.setEnabled(self._controller is not None)
-        select_sample_action.triggered.connect(self._select_dev_sample)
-        menu.addAction(select_sample_action)
-
-        latest_sample_action = QAction("Use latest dev sample", menu)
-        latest_sample_action.setEnabled(
-            self._controller is not None and self._controller.latest_dev_sample() is not None
-        )
-        latest_sample_action.triggered.connect(
-            lambda: self._controller and self._controller.select_latest_dev_sample()
-        )
-        menu.addAction(latest_sample_action)
-
-        open_samples_action = QAction("Open dev samples folder", menu)
-        open_samples_action.setEnabled(self._controller is not None)
-        open_samples_action.triggered.connect(self._open_dev_samples_folder)
-        menu.addAction(open_samples_action)
-
-        transcribe_action = QAction("Transcribe selected audio", menu)
-        transcribe_action.setEnabled(
-            self._controller is not None
-            and self._controller.state.status != RecorderStatus.PROCESSING
-            and (
-                self._controller.state.output_audio_path is not None
-                or self._controller.state.selected_dev_sample_path is not None
-            )
-        )
-        transcribe_action.triggered.connect(
-            lambda: self._controller and self._controller.start_transcription()
-        )
-        menu.addAction(transcribe_action)
-        menu.addSeparator()
-
-        compact_action = QAction("Compact width", menu)
-        compact_action.triggered.connect(lambda: self._set_strip_width(COMPACT_WIDTH))
-        menu.addAction(compact_action)
-
-        comfortable_action = QAction("Comfortable width", menu)
-        comfortable_action.triggered.connect(lambda: self._set_strip_width(COMFORTABLE_WIDTH))
-        menu.addAction(comfortable_action)
-
-        wide_action = QAction("Wide width", menu)
-        wide_action.triggered.connect(lambda: self._set_strip_width(WIDE_WIDTH))
-        menu.addAction(wide_action)
         menu.addSeparator()
 
         close_action = QAction("Close app", menu)
@@ -308,9 +306,9 @@ class RecorderStripWindow(QMainWindow):
         super().closeEvent(event)
 
     def _connect_buttons(self) -> None:
-        self.record_button.clicked.connect(lambda: self._controller and self._controller.record())
+        self.record_button.clicked.connect(self._record_clicked)
         self.pause_button.clicked.connect(lambda: self._controller and self._controller.pause())
-        self.stop_button.clicked.connect(lambda: self._controller and self._controller.stop())
+        self.stop_button.clicked.connect(self._stop_clicked)
         self.expand_button.clicked.connect(lambda: self._controller and self._controller.toggle_transcript())
 
     def _set_status_color(self, status: RecorderStatus) -> None:
@@ -426,18 +424,17 @@ class RecorderStripWindow(QMainWindow):
             QMenu#contextMenu::item:selected {
                 background: rgba(255, 255, 255, 0.12);
             }
+
+            QMenu#contextMenu::separator {
+                height: 1px;
+                background: rgba(255, 255, 255, 0.18);
+                margin: 6px 8px;
+            }
             """
         )
 
     def _expanded_panel_height(self) -> int:
         return 380
-
-    def _set_strip_width(self, width: int) -> None:
-        self.resize(width, self.height())
-        if self._controller and self._controller.state.transcript_open:
-            panel_height = self._expanded_panel_height()
-            self.transcript_panel.setMaximumHeight(panel_height)
-            self.setFixedHeight(self.strip.height() + panel_height)
 
     def _open_recordings_folder(self) -> None:
         if self._controller is None:
@@ -475,12 +472,45 @@ class RecorderStripWindow(QMainWindow):
         if file_path:
             self._controller.select_dev_sample(Path(file_path))
 
-    def _open_dev_samples_folder(self) -> None:
+    def _play_dev_sample(self) -> None:
+        path = self._dev_sample_path()
+        if path is None or not path.exists():
+            return
+
+        self._media_player.setSource(QUrl.fromLocalFile(str(path.resolve())))
+        self._media_player.play()
+
+    def _record_clicked(self) -> None:
         if self._controller is None:
             return
-        path = self._controller.dev_samples_dir
-        path.mkdir(parents=True, exist_ok=True)
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.resolve())))
+
+        self._controller.record()
+        if self._controller.state.status == RecorderStatus.RECORDING:
+            if self._controller.state.input_source == InputSource.DEV_SAMPLE:
+                self._play_dev_sample()
+            else:
+                self._media_player.stop()
+
+    def _stop_clicked(self) -> None:
+        if self._controller is None:
+            return
+
+        was_recording_dev_sample = (
+            self._controller.state.status == RecorderStatus.RECORDING
+            and self._controller.state.input_source == InputSource.DEV_SAMPLE
+        )
+        self._controller.stop()
+        if was_recording_dev_sample:
+            self._media_player.stop()
+
+    def _dev_sample_path(self) -> Path | None:
+        if self._controller is None:
+            return None
+
+        sample_path = self._controller.state.selected_dev_sample_path
+        if sample_path is None:
+            return None
+        return Path(sample_path)
 
     def _set_transcript_text(self, text: str) -> None:
         if self.transcript_text.toPlainText() == text:

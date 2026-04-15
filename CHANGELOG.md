@@ -48,9 +48,17 @@ All notable changes to AudioTranscriber will be documented in this file.
 - Added chunked background transcription using `faster-whisper`.
 - Set default transcription config to `base`, `cpu`, and `int8`.
 - Added incremental `.txt` transcript saving next to the source audio.
-- Added context menu actions to transcribe selected audio and open the transcript file.
+- Added context menu actions to transcribe recorded audio and open the transcript file.
 - Automatically starts transcription after stopping a recording.
 - Clarified that dev samples are transcribed from the context menu, while the record button creates a new recording.
 - Added a clearer empty-transcript message when no speech is detected.
 - Made Stop cancel active transcription after the current chunk completes.
 - Replaced the transcript label with a scrollable read-only transcript viewport.
+- Reduced transcription chunk length from 15 seconds to 8 seconds for more responsive updates.
+- Added explicit chunk progress state for the transcript header.
+- Added context menu playback for the selected dev sample or recorded audio.
+- Added dev sample as a first-class recording input source.
+- Updated the context menu with explicit dev sample select/play/stop actions.
+- Removed direct selected-audio transcription and width preset menu actions.
+- Simplified the context menu into input, dev sample, open, and close groups.
+- Styled context menu separators so group divider lines are visible.

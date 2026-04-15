@@ -45,13 +45,15 @@ class RecordingPipeline:
     def output_path(self) -> Path | None:
         return self._output_path
 
-    def start(self, source: InputSource) -> Path:
+    def start(self, source: InputSource, source_path: Path | None = None) -> Path:
         if self._thread and self._thread.is_alive():
             raise RuntimeError("Recording is already running.")
 
         self._source = source
         if source == InputSource.MICROPHONE:
             self._check_microphone_available()
+        if source == InputSource.DEV_SAMPLE and source_path is None:
+            raise RuntimeError("No dev sample selected for recording.")
 
         self._stop_event.clear()
         self._pause_event.clear()
@@ -63,8 +65,22 @@ class RecordingPipeline:
         self._wave_file.setsampwidth(SAMPLE_WIDTH_BYTES)
         self._wave_file.setframerate(SAMPLE_RATE)
 
-        target = self._record_test_tone if source == InputSource.TEST_TONE else self._record_microphone
-        self._thread = threading.Thread(target=target, name="RecordingPipeline", daemon=True)
+        if source == InputSource.TEST_TONE:
+            target = self._record_test_tone
+            args = ()
+        elif source == InputSource.MICROPHONE:
+            target = self._record_microphone
+            args = ()
+        else:
+            target = self._record_dev_sample
+            args = (source_path,)
+
+        self._thread = threading.Thread(
+            target=target,
+            args=args,
+            name="RecordingPipeline",
+            daemon=True,
+        )
         self._thread.start()
         return self._output_path
 
@@ -129,6 +145,23 @@ class RecordingPipeline:
             while not self._stop_event.is_set():
                 time.sleep(CHUNK_SECONDS)
 
+    def _record_dev_sample(self, source_path: Path) -> None:
+        audio = _decode_audio_file(source_path)
+        cursor = 0
+        while not self._stop_event.is_set() and cursor < len(audio):
+            if self._pause_event.is_set():
+                time.sleep(CHUNK_SECONDS)
+                continue
+
+            chunk = audio[cursor : cursor + CHUNK_FRAMES]
+            raw = _float_audio_to_int16_bytes(chunk)
+            self._write_frames(raw)
+            self._on_level(_level_from_int16(raw))
+            cursor += CHUNK_FRAMES
+            time.sleep(CHUNK_SECONDS)
+
+        self._on_level(0.0)
+
     def _write_frames(self, frames: bytes) -> None:
         with self._write_lock:
             if self._wave_file is not None:
@@ -170,3 +203,20 @@ def _level_from_int16(raw: bytes) -> float:
     for (sample,) in struct.iter_unpack("<h", raw[: sample_count * SAMPLE_WIDTH_BYTES]):
         total += abs(sample)
     return min(1.0, (total / sample_count) / MAX_INT16 * 4.0)
+
+
+def _decode_audio_file(path: Path):
+    try:
+        from faster_whisper.audio import decode_audio
+    except ImportError as exc:
+        raise RuntimeError("faster-whisper is required for dev sample input.") from exc
+
+    return decode_audio(str(path), sampling_rate=SAMPLE_RATE)
+
+
+def _float_audio_to_int16_bytes(audio) -> bytes:  # noqa: ANN001
+    chunk = bytearray()
+    for sample in audio:
+        value = int(max(-1.0, min(1.0, float(sample))) * MAX_INT16)
+        chunk.extend(struct.pack("<h", value))
+    return bytes(chunk)

@@ -12,8 +12,6 @@ from audiotranscriber.pipelines.recording import RecordingPipeline
 from audiotranscriber.pipelines.transcription import TranscriptionPipeline
 from audiotranscriber.state import InputSource, RecorderState, RecorderStatus
 
-SUPPORTED_DEV_SAMPLE_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg"}
-
 
 class AppController(QObject):
     """Owns app state until real audio/transcription services arrive in later phases."""
@@ -72,7 +70,24 @@ class AppController(QObject):
     def set_input_source(self, source: InputSource) -> None:
         if self._state.status in {RecorderStatus.RECORDING, RecorderStatus.PAUSED}:
             return
-        label = "testtoon" if source == InputSource.TEST_TONE else "microfoon"
+
+        if source == InputSource.DEV_SAMPLE and self._state.selected_dev_sample_path is None:
+            self._set_state(
+                input_source=source,
+                error_message="Geen dev sample geselecteerd.",
+                transcript_open=True,
+                preview_text=(
+                    "Dev sample input geselecteerd, maar er is nog geen bestand gekozen.\n\n"
+                    "Gebruik rechtermuisknop > Select dev sample."
+                ),
+            )
+            return
+
+        label = {
+            InputSource.TEST_TONE: "testtoon",
+            InputSource.MICROPHONE: "microfoon",
+            InputSource.DEV_SAMPLE: "dev sample",
+        }[source]
         self._set_state(
             input_source=source,
             error_message=None,
@@ -98,45 +113,15 @@ class AppController(QObject):
 
         self._set_state(
             selected_dev_sample_path=str(resolved),
-            output_audio_path=str(resolved),
             error_message=None,
             transcript_open=True,
             preview_text=(
-                "Dev sample geselecteerd voor Phase 3 transcriptie:\n"
+                "Dev sample geselecteerd:\n"
                 f"{resolved}\n\n"
-                "Gebruik rechtermuisknop > Transcribe selected audio om dit bestand te "
-                "transcriberen. De rode opnameknop maakt een nieuwe opname."
+                "Kies 'Use dev sample input' om dit bestand via de rode opnameknop "
+                "op te nemen en daarna automatisch te transcriberen."
             ),
         )
-
-    def select_latest_dev_sample(self) -> None:
-        sample = self.latest_dev_sample()
-        if sample is None:
-            self._set_state(
-                error_message="Geen dev sample gevonden.",
-                preview_text=(
-                    "Geen audio sample gevonden in dev_samples/. Voeg een MP3, WAV, M4A, "
-                    "AAC, FLAC of OGG toe."
-                ),
-                transcript_open=True,
-            )
-            return
-
-        self.select_dev_sample(sample)
-
-    def latest_dev_sample(self) -> Path | None:
-        if not self.dev_samples_dir.exists():
-            return None
-
-        samples = [
-            path
-            for path in self.dev_samples_dir.iterdir()
-            if path.is_file() and path.suffix.lower() in SUPPORTED_DEV_SAMPLE_EXTENSIONS
-        ]
-        if not samples:
-            return None
-
-        return max(samples, key=lambda path: path.stat().st_mtime_ns)
 
     def record(self) -> None:
         if self._state.status in {RecorderStatus.RECORDING, RecorderStatus.PROCESSING}:
@@ -152,7 +137,13 @@ class AppController(QObject):
             return
 
         try:
-            output_path = self._recorder.start(self._state.input_source)
+            source_path = (
+                Path(self._state.selected_dev_sample_path)
+                if self._state.input_source == InputSource.DEV_SAMPLE
+                and self._state.selected_dev_sample_path is not None
+                else None
+            )
+            output_path = self._recorder.start(self._state.input_source, source_path=source_path)
         except Exception as exc:  # noqa: BLE001
             self._elapsed_timer.stop()
             self._set_state(
@@ -171,7 +162,13 @@ class AppController(QObject):
             last_update_seconds=None,
             output_audio_path=str(output_path),
             transcript_output_path=None,
-            selected_dev_sample_path=None,
+            selected_dev_sample_path=(
+                self._state.selected_dev_sample_path
+                if self._state.input_source == InputSource.DEV_SAMPLE
+                else None
+            ),
+            transcription_current_chunk=0,
+            transcription_total_chunks=0,
             error_message=None,
             preview_text=f"Opname loopt. Ruwe audio wordt opgeslagen als:\n{output_path}",
         )
@@ -241,6 +238,8 @@ class AppController(QObject):
             error_message=None,
             output_audio_path=str(target),
             transcript_output_path=str(transcript_path),
+            transcription_current_chunk=0,
+            transcription_total_chunks=0,
             preview_text=(
                 "Transcriptie voorbereiden...\n"
                 f"Model: {self._transcriber.config.model_name}, "
@@ -326,6 +325,8 @@ class AppController(QObject):
             status=RecorderStatus.PROCESSING,
             last_update_seconds=0,
             transcript_output_path=transcript_path,
+            transcription_current_chunk=current_chunk,
+            transcription_total_chunks=total_chunks,
             preview_text=(
                 text
                 or (
@@ -352,6 +353,8 @@ class AppController(QObject):
             last_update_seconds=None,
             audio_level=0.0,
             transcript_output_path=transcript_path,
+            transcription_current_chunk=0,
+            transcription_total_chunks=0,
             preview_text=text,
         )
 
@@ -361,6 +364,8 @@ class AppController(QObject):
             status=RecorderStatus.IDLE,
             last_update_seconds=None,
             audio_level=0.0,
+            transcription_current_chunk=0,
+            transcription_total_chunks=0,
             error_message=error,
             preview_text=f"Transcriptie mislukt:\n{error}",
             transcript_open=True,
@@ -373,6 +378,8 @@ class AppController(QObject):
             last_update_seconds=None,
             audio_level=0.0,
             transcript_output_path=transcript_path,
+            transcription_current_chunk=0,
+            transcription_total_chunks=0,
             preview_text=(
                 f"{self._state.preview_text}\n\nTranscriptie gestopt. "
                 f"Gedeeltelijke tekst opgeslagen:\n{transcript_path}"
@@ -381,8 +388,6 @@ class AppController(QObject):
         )
 
     def _current_transcription_audio_path(self) -> Path | None:
-        if self._state.selected_dev_sample_path:
-            return Path(self._state.selected_dev_sample_path)
         if self._state.output_audio_path:
             return Path(self._state.output_audio_path)
         return None

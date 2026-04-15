@@ -16,6 +16,7 @@ class RecorderStatus(str, Enum):
 class InputSource(str, Enum):
     TEST_TONE = "test_tone"
     MICROPHONE = "microphone"
+    DEV_SAMPLE = "dev_sample"
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,8 @@ class RecorderState:
     output_audio_path: str | None = None
     transcript_output_path: str | None = None
     selected_dev_sample_path: str | None = None
+    transcription_current_chunk: int = 0
+    transcription_total_chunks: int = 0
     error_message: str | None = None
     preview_text: str = (
         "Nog geen opname opgeslagen. Gebruik voor testen zonder microfoon de "

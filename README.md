@@ -14,12 +14,14 @@ This checkpoint implements the PySide6 visual MVP plus Phase 2 recording basics:
 - Timestamped raw WAV recording to `recordings/`.
 - Test tone input for machines without a microphone.
 - Microphone input option for machines with a local input device.
-- Right-click actions to open the recordings folder, selected audio, or transcript.
+- Right-click actions to open the recordings folder, last recording, or transcript.
 - Dev sample selection from ignored `dev_samples/` for Phase 3 transcription work.
 - Chunked background transcription with `faster-whisper` defaults: `base`, `cpu`, `int8`.
-- Incremental `.txt` transcript saving next to the selected audio source.
+- Incremental `.txt` transcript saving next to the recorded audio source.
 - Stop button cancels active transcription after the current chunk completes.
 - Transcript panel uses a scrollable viewport during long transcripts.
+- Right-click playback for the selected dev sample.
+- Dev samples can be used as a recording input source for end-to-end testing.
 
 Phase 2 raw audio format:
 
@@ -28,8 +30,9 @@ WAV, 16 kHz, mono, 16-bit PCM
 ```
 
 Development audio samples can be placed in `dev_samples/`. That folder is ignored by git.
-Use the app's right-click menu to select a sample or use the latest sample, then choose
-`Transcribe selected audio`. The red record button always creates a new recording.
+Use the app's right-click menu to select a sample. Choose `Use dev sample input` when you
+want the red record button to record that sample into a new WAV and then run the normal
+stop/transcription flow.
 
 Phase 3 transcription defaults:
 
@@ -37,7 +40,7 @@ Phase 3 transcription defaults:
 model=base
 device=cpu
 compute_type=int8
-chunk_seconds=15
+chunk_seconds=8
 ```
 
 ## Run

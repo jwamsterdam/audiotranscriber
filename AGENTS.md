@@ -45,9 +45,10 @@ Phase 2:
 Phase 3:
 
 - Default config is `model=base`, `device=cpu`, `compute_type=int8`.
-- Chunk length is currently 15 seconds.
-- Transcripts are saved incrementally as `.txt` next to the selected audio file.
+- Chunk length is currently 8 seconds for more responsive updates and cancellation.
+- Transcripts are saved incrementally as `.txt` next to the recorded audio file.
 - Dev samples in `dev_samples/` can be selected from the right-click menu.
+- Dev samples can be used directly as an input source for end-to-end recording/transcription tests.
 
 Phase 4:
 
