@@ -25,3 +25,4 @@ All notable changes to AudioTranscriber will be documented in this file.
 - Made expanded transcript height respond to wrapped text instead of using a fixed height.
 - Made closing the UI explicitly quit the Qt app so PowerShell returns to the prompt.
 - Increased the expanded transcript panel's measured height so wrapped preview text remains readable.
+- Added a dependency-free dev watcher for restart-on-save UI iteration.

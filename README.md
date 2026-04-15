@@ -29,6 +29,15 @@ If PowerShell script execution gets in the way, use:
 
 Both commands create `.venv` if needed, install the local package, and start the app.
 
+For UI iteration with automatic restart after Python file changes:
+
+```powershell
+.\dev.ps1
+```
+
+This is restart-on-save rather than true in-place hot reload. The app closes and reopens
+when files under `src/` change.
+
 Manual setup:
 
 ```powershell

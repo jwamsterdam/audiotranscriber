@@ -60,6 +60,12 @@ Use the one-command Windows runner when possible:
 .\run.ps1
 ```
 
+Use restart-on-save during UI iteration:
+
+```powershell
+.\dev.ps1
+```
+
 Fallback:
 
 ```powershell
@@ -84,4 +90,3 @@ python -m audiotranscriber.main
 - For Phase 2 capture, prefer a Python-accessible recording backend first if it is simpler and more reliable cross-platform than controlling ffmpeg directly.
 - Avoid heavy visuals or complex spectrum analysis.
 - Keep code modular enough for later packaging.
-
