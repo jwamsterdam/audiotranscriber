@@ -25,6 +25,7 @@ chunked transcription:
 - Dev samples can be used as a recording input source for end-to-end testing.
 - Near-real-time transcript preview updates from short completed chunks while recording.
 - Final 15-second chunks are transcribed separately during recording and kept out of the live view.
+- Main strip language selector: `AUTO`, `NL`, or `EN`.
 - Stop only drains/merges queued chunks instead of retranscribing the whole recording.
 - The visible transcript stays quick-and-dirty during recording, then switches to final text after stop.
 
@@ -47,6 +48,7 @@ device=cpu
 compute_type=int8
 live_chunk_seconds=4
 final_chunk_seconds=15
+language=auto | nl | en
 ```
 
 ## Run

@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QMainWindow,
     QMenu,
+    QComboBox,
     QTextEdit,
     QSizePolicy,
     QSpacerItem,
@@ -24,7 +25,12 @@ from PySide6.QtWidgets import (
 )
 
 from audiotranscriber.controllers.app_controller import AppController
-from audiotranscriber.state import InputSource, RecorderState, RecorderStatus
+from audiotranscriber.state import (
+    InputSource,
+    RecorderState,
+    RecorderStatus,
+    TranscriptionLanguage,
+)
 from audiotranscriber.ui.widgets import (
     GREEN,
     RED,
@@ -36,7 +42,7 @@ from audiotranscriber.ui.widgets import (
     animate_height,
 )
 
-DEFAULT_WIDTH = 740
+DEFAULT_WIDTH = 780
 
 
 class RecorderStripWindow(QMainWindow):
@@ -81,6 +87,12 @@ class RecorderStripWindow(QMainWindow):
         self.waveform = WaveformWidget(self.strip)
         self.timer_label = QLabel("00:00:00", self.strip)
         self.timer_label.setObjectName("timerLabel")
+        self.language_combo = QComboBox(self.strip)
+        self.language_combo.setObjectName("languageCombo")
+        self.language_combo.addItem("AUTO", TranscriptionLanguage.AUTO.value)
+        self.language_combo.addItem("NL", TranscriptionLanguage.DUTCH.value)
+        self.language_combo.addItem("EN", TranscriptionLanguage.ENGLISH.value)
+        self.language_combo.setFixedWidth(64)
         self.stop_button = StripIconButton(IconKind.STOP, self.strip)
         self.pause_button = StripIconButton(IconKind.PAUSE, self.strip)
         self.record_button = StripIconButton(IconKind.RECORD, self.strip)
@@ -94,6 +106,7 @@ class RecorderStripWindow(QMainWindow):
         strip_layout.addWidget(self.status_dot)
         strip_layout.addWidget(self.waveform, 1)
         strip_layout.addWidget(self.timer_label)
+        strip_layout.addWidget(self.language_combo)
         strip_layout.addWidget(separator)
         strip_layout.addWidget(self.stop_button)
         strip_layout.addWidget(self.pause_button)
@@ -153,6 +166,7 @@ class RecorderStripWindow(QMainWindow):
         self.waveform.set_status(state.status)
         self.waveform.set_level(state.audio_level)
         self.timer_label.setText(self._format_elapsed(state.elapsed_seconds))
+        self._apply_language_state(state)
         self._set_transcript_text(state.preview_text)
         self.expand_button.set_kind(IconKind.COLLAPSE if state.transcript_open else IconKind.EXPAND)
         self.strip.setProperty("expanded", state.transcript_open)
@@ -317,6 +331,7 @@ class RecorderStripWindow(QMainWindow):
         self.pause_button.clicked.connect(lambda: self._controller and self._controller.pause())
         self.stop_button.clicked.connect(self._stop_clicked)
         self.expand_button.clicked.connect(lambda: self._controller and self._controller.toggle_transcript())
+        self.language_combo.currentIndexChanged.connect(self._language_changed)
 
     def _set_status_color(self, status: RecorderStatus) -> None:
         if status == RecorderStatus.RECORDING:
@@ -361,6 +376,32 @@ class RecorderStripWindow(QMainWindow):
                 font-size: 15px;
                 font-weight: 500;
                 min-width: 78px;
+            }
+
+            QComboBox#languageCombo {
+                background: rgba(255, 255, 255, 0.08);
+                color: #f7f8f8;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 8px;
+                padding: 4px 8px;
+                font-size: 12px;
+                font-weight: 700;
+            }
+
+            QComboBox#languageCombo:disabled {
+                color: rgba(247, 248, 248, 0.48);
+            }
+
+            QComboBox#languageCombo::drop-down {
+                border: none;
+                width: 14px;
+            }
+
+            QComboBox#languageCombo QAbstractItemView {
+                background: #151a1d;
+                color: #f7f8f8;
+                selection-background-color: rgba(255, 255, 255, 0.12);
+                border: 1px solid rgba(255, 255, 255, 0.14);
             }
 
             QFrame#transcriptPanel {
@@ -518,6 +559,31 @@ class RecorderStripWindow(QMainWindow):
         if sample_path is None:
             return None
         return Path(sample_path)
+
+    def _apply_language_state(self, state: RecorderState) -> None:
+        self.language_combo.blockSignals(True)
+        index = self.language_combo.findData(state.transcription_language.value)
+        if index >= 0 and self.language_combo.currentIndex() != index:
+            self.language_combo.setCurrentIndex(index)
+        self.language_combo.setEnabled(
+            state.status not in {
+                RecorderStatus.RECORDING,
+                RecorderStatus.PAUSED,
+                RecorderStatus.PROCESSING,
+            }
+        )
+        self.language_combo.blockSignals(False)
+
+    def _language_changed(self) -> None:
+        if self._controller is None:
+            return
+
+        value = self.language_combo.currentData()
+        try:
+            language = TranscriptionLanguage(value)
+        except ValueError:
+            language = TranscriptionLanguage.AUTO
+        self._controller.set_transcription_language(language)
 
     def _set_transcript_text(self, text: str) -> None:
         if self.transcript_text.toPlainText() == text:

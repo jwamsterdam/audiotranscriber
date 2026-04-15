@@ -15,6 +15,7 @@ DEFAULT_DEVICE = "cpu"
 DEFAULT_COMPUTE_TYPE = "int8"
 DEFAULT_CHUNK_SECONDS = 15
 DEFAULT_OVERLAP_SECONDS = 0
+DEFAULT_LANGUAGE: str | None = None
 SAMPLE_RATE = 16_000
 
 ProgressCallback = Callable[[int, int, str, Path], None]
@@ -27,6 +28,7 @@ class TranscriptionConfig:
     compute_type: str = DEFAULT_COMPUTE_TYPE
     chunk_seconds: int = DEFAULT_CHUNK_SECONDS
     overlap_seconds: int = DEFAULT_OVERLAP_SECONDS
+    language: str | None = DEFAULT_LANGUAGE
 
 
 class TranscriptionPipeline:
@@ -39,6 +41,16 @@ class TranscriptionPipeline:
     @property
     def config(self) -> TranscriptionConfig:
         return self._config
+
+    def set_language(self, language: str | None) -> None:
+        self._config = TranscriptionConfig(
+            model_name=self._config.model_name,
+            device=self._config.device,
+            compute_type=self._config.compute_type,
+            chunk_seconds=self._config.chunk_seconds,
+            overlap_seconds=self._config.overlap_seconds,
+            language=language,
+        )
 
     def transcript_path_for(self, audio_path: Path) -> Path:
         return audio_path.with_suffix(".txt")
@@ -79,6 +91,7 @@ class TranscriptionPipeline:
                 chunk,
                 beam_size=1,
                 vad_filter=False,
+                language=self._config.language,
             )
             text = " ".join(segment.text.strip() for segment in segments).strip()
             if text:
@@ -99,6 +112,7 @@ class TranscriptionPipeline:
             audio,
             beam_size=1,
             vad_filter=False,
+            language=self._config.language,
         )
         return " ".join(segment.text.strip() for segment in segments).strip()
 

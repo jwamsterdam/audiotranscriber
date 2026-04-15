@@ -71,3 +71,4 @@ All notable changes to AudioTranscriber will be documented in this file.
 - Changed final transcription to run as rolling chunks during recording instead of retranscribing the full WAV after Stop.
 - Stop now drains queued chunks, merges confirmed text, and lightly removes repeated boundary words.
 - Saved separate `*.live.txt` and `*.final.txt` files so live and final transcription quality can be compared directly.
+- Added a compact main-strip language selector for `AUTO`, `NL`, and `EN` faster-whisper language hints.

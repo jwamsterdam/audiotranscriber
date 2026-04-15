@@ -15,7 +15,12 @@ from audiotranscriber.pipelines.recording import (
     RecordingPipeline,
 )
 from audiotranscriber.pipelines.transcription import TranscriptionPipeline
-from audiotranscriber.state import InputSource, RecorderState, RecorderStatus
+from audiotranscriber.state import (
+    InputSource,
+    RecorderState,
+    RecorderStatus,
+    TranscriptionLanguage,
+)
 
 
 class AppController(QObject):
@@ -116,6 +121,27 @@ class AppController(QObject):
             input_source=source,
             error_message=None,
             preview_text=f"Invoer ingesteld op {label}. Klaar voor opname.",
+        )
+
+    def set_transcription_language(self, language: TranscriptionLanguage) -> None:
+        if self._state.status in {
+            RecorderStatus.RECORDING,
+            RecorderStatus.PAUSED,
+            RecorderStatus.PROCESSING,
+        }:
+            return
+
+        whisper_language = None if language == TranscriptionLanguage.AUTO else language.value
+        self._transcriber.set_language(whisper_language)
+        label = {
+            TranscriptionLanguage.AUTO: "auto",
+            TranscriptionLanguage.DUTCH: "Nederlands",
+            TranscriptionLanguage.ENGLISH: "Engels",
+        }[language]
+        self._set_state(
+            transcription_language=language,
+            error_message=None,
+            preview_text=f"Taal ingesteld op {label}. Klaar voor opname.",
         )
 
     def select_dev_sample(self, path: Path) -> None:
@@ -289,7 +315,8 @@ class AppController(QObject):
             f"{target} "
             f"model={self._transcriber.config.model_name} "
             f"device={self._transcriber.config.device} "
-            f"compute_type={self._transcriber.config.compute_type}",
+            f"compute_type={self._transcriber.config.compute_type} "
+            f"language={self._transcriber.config.language or 'auto'}",
             flush=True,
         )
         self._preview_age_timer.start()
@@ -392,7 +419,8 @@ class AppController(QObject):
             "Starting near-real-time transcription: "
             f"{audio_path} "
             f"live_chunk_seconds={LIVE_CHUNK_SECONDS} "
-            f"final_chunk_seconds={FINAL_CHUNK_SECONDS}",
+            f"final_chunk_seconds={FINAL_CHUNK_SECONDS} "
+            f"language={self._transcriber.config.language or 'auto'}",
             flush=True,
         )
 

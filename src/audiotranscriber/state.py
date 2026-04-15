@@ -19,6 +19,12 @@ class InputSource(str, Enum):
     DEV_SAMPLE = "dev_sample"
 
 
+class TranscriptionLanguage(str, Enum):
+    AUTO = "auto"
+    DUTCH = "nl"
+    ENGLISH = "en"
+
+
 @dataclass(frozen=True)
 class RecorderState:
     status: RecorderStatus = RecorderStatus.IDLE
@@ -26,6 +32,7 @@ class RecorderState:
     transcript_open: bool = False
     last_update_seconds: int | None = None
     input_source: InputSource = InputSource.TEST_TONE
+    transcription_language: TranscriptionLanguage = TranscriptionLanguage.AUTO
     audio_level: float = 0.0
     output_audio_path: str | None = None
     transcript_output_path: str | None = None

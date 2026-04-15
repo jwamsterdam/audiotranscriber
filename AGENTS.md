@@ -47,6 +47,7 @@ Phase 3:
 - Default config is `model=base`, `device=cpu`, `compute_type=int8`.
 - Live preview chunks are currently 4 seconds for more responsive updates while recording.
 - Final chunks are currently 15 seconds and run during recording for better context.
+- The main strip language selector supports auto-detect, Dutch (`nl`), and English (`en`).
 - Transcripts are saved incrementally as `.txt` next to the recorded audio file.
 - Normal recording flow saves `*.live.txt` for the quick preview and `*.final.txt` for the final transcript.
 - Dev samples in `dev_samples/` can be selected from the right-click menu.
