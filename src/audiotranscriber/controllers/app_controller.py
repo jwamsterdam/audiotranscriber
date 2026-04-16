@@ -115,8 +115,6 @@ class AppController(QObject):
 
     def set_transcription_language(self, language: TranscriptionLanguage) -> None:
         if self._state.status in {
-            RecorderStatus.RECORDING,
-            RecorderStatus.PAUSED,
             RecorderStatus.PROCESSING,
         }:
             return

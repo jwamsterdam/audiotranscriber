@@ -21,10 +21,12 @@ chunked transcription:
 - Incremental `.txt` transcript saving next to the recorded audio source.
 - Stop button cancels active transcription after the current chunk completes.
 - Transcript panel uses a scrollable viewport during long transcripts.
+- Floating strip can snap magnetically to the top of the screen and releases when pulled down.
 - Right-click playback for the selected dev sample.
 - Dev samples can be used as a recording input source for end-to-end testing.
 - Near-real-time transcript preview updates from short completed chunks while recording.
 - Main strip language selector: `AUTO`, `NL`, or `EN`.
+- Language can be changed during recording; new chunks use the updated selection.
 - Stop only drains/merges queued live chunks instead of starting a second transcription pass.
 
 Phase 2 raw audio format:

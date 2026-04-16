@@ -69,3 +69,5 @@ All notable changes to AudioTranscriber will be documented in this file.
 - Stop now drains queued live chunks and does not start a second transcription pass.
 - Added a compact main-strip language selector for `AUTO`, `NL`, and `EN` faster-whisper language hints.
 - Removed the experimental LocalAgreement sentence mode and transcription mode context menu.
+- Allowed changing the language selector while recording so future chunks use the updated language.
+- Added top-edge magnetic snapping for the floating strip with pull-down release.

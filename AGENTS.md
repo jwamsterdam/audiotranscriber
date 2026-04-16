@@ -25,6 +25,7 @@ Keep the UI, recording pipeline, transcription pipeline, and controller responsi
 - Match the supplied screenshot as the primary visual reference.
 - Default transcript state should stay collapsed.
 - Expanded transcript should open below the strip.
+- The floating strip can magnetically snap to the top screen edge and release when pulled down.
 - Status colors:
   - Green: idle / ready.
   - Red blinking: recording.
@@ -46,7 +47,8 @@ Phase 3:
 
 - Default config is `model=base`, `device=cpu`, `compute_type=int8`.
 - Live preview chunks are currently 4 seconds for more responsive updates while recording.
-- The main strip language selector supports auto-detect, Dutch (`nl`), and English (`en`).
+- The main strip language selector supports auto-detect, Dutch (`nl`), and English (`en`),
+  and can be changed while recording so future chunks use the updated language.
 - Transcripts are saved incrementally as `.txt` next to the recorded audio file.
 - Dev samples in `dev_samples/` can be selected from the right-click menu.
 - Dev samples can be used directly as an input source for end-to-end recording/transcription tests.

@@ -43,6 +43,8 @@ from audiotranscriber.ui.widgets import (
 )
 
 DEFAULT_WIDTH = 780
+SNAP_TOP_DISTANCE = 18
+UNSNAP_PULL_DISTANCE = 34
 
 
 class RecorderStripWindow(QMainWindow):
@@ -53,6 +55,8 @@ class RecorderStripWindow(QMainWindow):
         self._controller: AppController | None = None
         self._height_animation = None
         self._drag_position = None
+        self._snapped_to_top = False
+        self._snap_screen_top = 0
         self._audio_output = QAudioOutput(self)
         self._audio_output.setVolume(0.8)
         self._media_player = QMediaPlayer(self)
@@ -215,11 +219,33 @@ class RecorderStripWindow(QMainWindow):
     def mousePressEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton:
             self._drag_position = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            screen = self.screen() or QApplication.primaryScreen()
+            if screen is not None:
+                self._snap_screen_top = screen.availableGeometry().top()
             event.accept()
 
     def mouseMoveEvent(self, event) -> None:  # noqa: N802
         if event.buttons() == Qt.MouseButton.LeftButton and self._drag_position is not None:
-            self.move(event.globalPosition().toPoint() - self._drag_position)
+            target = event.globalPosition().toPoint() - self._drag_position
+            screen = QApplication.screenAt(event.globalPosition().toPoint()) or self.screen()
+            if screen is None:
+                self.move(target)
+                event.accept()
+                return
+
+            available = screen.availableGeometry()
+            if self._snapped_to_top:
+                if target.y() > self._snap_screen_top + UNSNAP_PULL_DISTANCE:
+                    self._snapped_to_top = False
+                    self.move(target)
+                else:
+                    self.move(target.x(), available.top())
+            elif target.y() <= available.top() + SNAP_TOP_DISTANCE:
+                self._snapped_to_top = True
+                self._snap_screen_top = available.top()
+                self.move(target.x(), available.top())
+            else:
+                self.move(target)
             event.accept()
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
@@ -567,8 +593,6 @@ class RecorderStripWindow(QMainWindow):
             self.language_combo.setCurrentIndex(index)
         self.language_combo.setEnabled(
             state.status not in {
-                RecorderStatus.RECORDING,
-                RecorderStatus.PAUSED,
                 RecorderStatus.PROCESSING,
             }
         )
@@ -607,7 +631,12 @@ class RecorderStripWindow(QMainWindow):
 
     def _sync_window_height(self, panel_height: int, anchor) -> None:  # noqa: ANN001
         self.setFixedHeight(self.strip.height() + max(0, panel_height))
-        self.move(anchor)
+        if self._snapped_to_top:
+            screen = self.screen() or QApplication.primaryScreen()
+            top = screen.availableGeometry().top() if screen is not None else self._snap_screen_top
+            self.move(anchor.x(), top)
+        else:
+            self.move(anchor)
 
     @staticmethod
     def _format_elapsed(seconds: int) -> str:
