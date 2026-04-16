@@ -4,6 +4,9 @@ $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $InnoCompiler = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
 
 & (Join-Path $ProjectRoot "build-windows.ps1")
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}
 
 if (-not (Test-Path $InnoCompiler)) {
     Write-Host ""
@@ -17,6 +20,9 @@ if (-not (Test-Path $InnoCompiler)) {
 
 Write-Host "Creating Windows installer..."
 & $InnoCompiler (Join-Path $ProjectRoot "installer-windows.iss")
+if ($LASTEXITCODE -ne 0) {
+    throw "Inno Setup failed with exit code $LASTEXITCODE."
+}
 
 Write-Host ""
 Write-Host "Installer complete:"

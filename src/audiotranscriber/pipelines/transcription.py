@@ -125,19 +125,26 @@ class TranscriptionPipeline:
                 from faster_whisper import WhisperModel
             except ImportError as exc:
                 raise RuntimeError(
-                    "faster-whisper is not installed. Run .\\run.ps1 to install dependencies."
+                    "Transcription support is missing from this app build. "
+                    "Please reinstall AudioTranscriber."
                 ) from exc
 
-            self._model = WhisperModel(
-                self._config.model_name,
-                device=self._config.device,
-                compute_type=self._config.compute_type,
-                download_root=(
-                    str(self._config.model_cache_dir)
-                    if self._config.model_cache_dir is not None
-                    else None
-                ),
-            )
+            if self._config.model_cache_dir is not None:
+                self._config.model_cache_dir.mkdir(parents=True, exist_ok=True)
+
+            try:
+                self._model = WhisperModel(
+                    self._config.model_name,
+                    device=self._config.device,
+                    compute_type=self._config.compute_type,
+                    download_root=(
+                        str(self._config.model_cache_dir)
+                        if self._config.model_cache_dir is not None
+                        else None
+                    ),
+                )
+            except Exception as exc:  # noqa: BLE001
+                raise RuntimeError(_friendly_model_error(exc, self._config)) from exc
         return self._model
 
     @staticmethod
@@ -150,3 +157,49 @@ class TranscriptionPipeline:
             ) from exc
 
         return decode_audio(str(audio_path), sampling_rate=SAMPLE_RATE)
+
+
+def _friendly_model_error(error: Exception, config: TranscriptionConfig) -> str:
+    detail = str(error).strip()
+    lower_detail = detail.lower()
+    cache_hint = (
+        f"\n\nModel cache:\n{config.model_cache_dir}"
+        if config.model_cache_dir is not None
+        else ""
+    )
+
+    if any(
+        word in lower_detail
+        for word in {
+            "connection",
+            "internet",
+            "network",
+            "timeout",
+            "timed out",
+            "dns",
+            "ssl",
+            "certificate",
+            "huggingface",
+            "resolve",
+        }
+    ):
+        return (
+            "The transcription model needs to be downloaded once before first use, "
+            "but the download could not complete. Connect to the internet and try "
+            "the transcription again."
+            f"{cache_hint}"
+        )
+
+    if any(word in lower_detail for word in {"permission", "access", "denied"}):
+        return (
+            "The transcription model cache could not be written. Check folder permissions "
+            "or choose a writable app data location, then try again."
+            f"{cache_hint}"
+        )
+
+    return (
+        "The transcription model could not be loaded. On first use, AudioTranscriber "
+        "downloads the model once and then reuses it locally. Connect to the internet "
+        "and try again; if this keeps happening, reinstall the app."
+        f"{cache_hint}"
+    )

@@ -83,6 +83,11 @@ AUDIOTRANSCRIBER_PROFILE=prod
   models download on first use
 ```
 
+Production user-facing errors are kept explicit for common setup problems:
+
+- Missing or blocked microphone input.
+- First-use model download failures when internet is unavailable.
+
 Optional update URL:
 
 ```text
@@ -135,6 +140,8 @@ Production folder build on Windows:
 
 This creates a PyInstaller folder build at `dist/AudioTranscriber/AudioTranscriber.exe`.
 Packaged/frozen builds default to the `prod` profile.
+Close any running `dist/AudioTranscriber/AudioTranscriber.exe` before rebuilding, because
+Windows locks loaded `.exe`, `.dll`, and `.pyd` files.
 
 Windows installer build:
 

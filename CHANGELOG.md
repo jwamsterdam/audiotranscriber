@@ -82,3 +82,5 @@ All notable changes to AudioTranscriber will be documented in this file.
 - Added dev/prod runtime profiles, production-safe recording/model paths, and a first Windows PyInstaller build script.
 - Added a production-focused context menu profile with microphone-only input and hidden dev sample/test tone actions.
 - Added a Windows Inno Setup installer template and packaging script.
+- Added friendlier production errors for missing/blocked microphones and first-use transcription model downloads.
+- Hardened Windows build scripts so PyInstaller/Inno failures stop the script and running app locks are reported clearly.

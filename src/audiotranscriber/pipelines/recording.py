@@ -22,6 +22,7 @@ MAX_INT16 = 32767
 
 LevelCallback = Callable[[float], None]
 ChunkCallback = Callable[[bytes, int], None]
+ErrorCallback = Callable[[str], None]
 LIVE_CHUNK_SECONDS = 4
 
 
@@ -33,10 +34,12 @@ class RecordingPipeline:
         output_dir: Path,
         on_level: LevelCallback,
         on_chunk: ChunkCallback | None = None,
+        on_error: ErrorCallback | None = None,
     ) -> None:
         self._output_dir = output_dir
         self._on_level = on_level
         self._on_chunk = on_chunk
+        self._on_error = on_error
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._pause_event = threading.Event()
@@ -95,13 +98,25 @@ class RecordingPipeline:
             args = (source_path,)
 
         self._thread = threading.Thread(
-            target=target,
-            args=args,
+            target=self._run_recording_target,
+            args=(target, *args),
             name="RecordingPipeline",
             daemon=True,
         )
         self._thread.start()
         return self._output_path
+
+    def _run_recording_target(self, target: Callable[..., None], *args) -> None:  # noqa: ANN002
+        try:
+            target(*args)
+        except Exception as exc:  # noqa: BLE001
+            self._on_level(0.0)
+            self._close_wave()
+            if self._on_error is not None:
+                if self._source == InputSource.MICROPHONE:
+                    self._on_error(_friendly_microphone_error(exc))
+                else:
+                    self._on_error(str(exc))
 
     def pause(self) -> None:
         self._pause_event.set()
@@ -143,7 +158,13 @@ class RecordingPipeline:
             time.sleep(CHUNK_SECONDS)
 
     def _record_microphone(self) -> None:
-        import sounddevice as sd
+        try:
+            import sounddevice as sd
+        except ImportError as exc:
+            raise RuntimeError(
+                "Microphone support is missing from this app build. "
+                "Please reinstall AudioTranscriber."
+            ) from exc
 
         def callback(indata, frames, time_info, status) -> None:  # noqa: ANN001
             del frames, time_info, status
@@ -155,15 +176,18 @@ class RecordingPipeline:
             self._write_frames(raw)
             self._on_level(_level_from_int16(raw))
 
-        with sd.RawInputStream(
-            samplerate=SAMPLE_RATE,
-            channels=CHANNELS,
-            dtype="int16",
-            callback=callback,
-            blocksize=CHUNK_FRAMES,
-        ):
-            while not self._stop_event.is_set():
-                time.sleep(CHUNK_SECONDS)
+        try:
+            with sd.RawInputStream(
+                samplerate=SAMPLE_RATE,
+                channels=CHANNELS,
+                dtype="int16",
+                callback=callback,
+                blocksize=CHUNK_FRAMES,
+            ):
+                while not self._stop_event.is_set():
+                    time.sleep(CHUNK_SECONDS)
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(_friendly_microphone_error(exc)) from exc
 
     def _record_dev_sample(self, source_path: Path) -> None:
         audio = _decode_audio_file(source_path)
@@ -234,12 +258,15 @@ class RecordingPipeline:
         try:
             import sounddevice as sd
         except ImportError as exc:
-            raise RuntimeError("The microphone backend is not installed.") from exc
+            raise RuntimeError(
+                "Microphone support is missing from this app build. "
+                "Please reinstall AudioTranscriber."
+            ) from exc
 
         try:
             sd.query_devices(kind="input")
         except Exception as exc:  # noqa: BLE001
-            raise RuntimeError("No microphone input device is available.") from exc
+            raise RuntimeError(_friendly_microphone_error(exc)) from exc
 
 
 def _level_from_int16(raw: bytes) -> float:
@@ -254,6 +281,27 @@ def _level_from_int16(raw: bytes) -> float:
     for (sample,) in struct.iter_unpack("<h", raw[: sample_count * SAMPLE_WIDTH_BYTES]):
         total += abs(sample)
     return min(1.0, (total / sample_count) / MAX_INT16 * 4.0)
+
+
+def _friendly_microphone_error(error: Exception) -> str:
+    detail = str(error).strip()
+    lower_detail = detail.lower()
+    if any(word in lower_detail for word in {"permission", "access", "denied", "privacy"}):
+        return (
+            "Microphone access was blocked. Allow AudioTranscriber to use the microphone "
+            "in Windows privacy settings, then restart the app and try again."
+        )
+
+    if any(word in lower_detail for word in {"device", "input", "invalid", "unavailable"}):
+        return (
+            "No microphone input was found. Connect a microphone, check that Windows sees "
+            "an input device, then restart AudioTranscriber."
+        )
+
+    return (
+        "The microphone could not be started. Check that a microphone is connected, that "
+        "Windows microphone permissions are enabled, and that no other app is blocking it."
+    )
 
 
 def _decode_audio_file(path: Path):

@@ -31,6 +31,7 @@ class AppController(QObject):
 
     state_changed = Signal(object)
     level_detected = Signal(float)
+    recording_failed = Signal(str)
     live_transcription_progress = Signal(int, int, str, str)
     transcription_progress = Signal(int, int, str, str)
     transcription_finished = Signal(str)
@@ -48,6 +49,7 @@ class AppController(QObject):
             config.recordings_dir,
             self.level_detected.emit,
             self._recording_chunk_from_thread,
+            self.recording_failed.emit,
         )
         self._transcriber = TranscriptionPipeline(
             TranscriptionConfig(model_cache_dir=config.model_cache_dir)
@@ -62,6 +64,7 @@ class AppController(QObject):
         self._live_chunks_done = 0
         self._live_chunks_queued = 0
         self.level_detected.connect(self._set_audio_level)
+        self.recording_failed.connect(self._handle_recording_failed)
         self.live_transcription_progress.connect(self._handle_live_transcription_progress)
         self.transcription_progress.connect(self._handle_transcription_progress)
         self.transcription_finished.connect(self._handle_transcription_finished)
@@ -210,11 +213,12 @@ class AppController(QObject):
             )
         except Exception as exc:  # noqa: BLE001
             self._elapsed_timer.stop()
+            error = str(exc)
             self._set_state(
                 status=RecorderStatus.IDLE,
                 audio_level=0.0,
-                error_message=str(exc),
-                preview_text=f"Opname kon niet starten: {exc}",
+                error_message=error,
+                preview_text=f"Opname kon niet starten:\n{error}",
                 transcript_open=True,
             )
             return
@@ -748,6 +752,25 @@ class AppController(QObject):
                     "Nog geen spraak herkend in de verwerkte audio."
                 )
             ),
+        )
+
+    def _handle_recording_failed(self, error: str) -> None:
+        self._elapsed_timer.stop()
+        self._preview_age_timer.stop()
+        self._transcription_cancel.set()
+        self._live_chunk_queue.put(None)
+        print(f"Recording failed: {error}", flush=True)
+        self._set_state(
+            status=RecorderStatus.IDLE,
+            last_update_seconds=None,
+            audio_level=0.0,
+            transcription_current_chunk=0,
+            transcription_total_chunks=0,
+            processing_label=None,
+            processing_progress_text=None,
+            error_message=error,
+            preview_text=f"Opname kon niet starten:\n{error}",
+            transcript_open=True,
         )
 
     def _handle_transcription_finished(self, transcript_path: str) -> None:
