@@ -2,6 +2,12 @@
 
 All notable changes to AudioTranscriber will be documented in this file.
 
+## 0.1.1 - Production Packaging
+
+- Switched the Windows installer to per-user install under `%LOCALAPPDATA%\Programs\AudioTranscriber`.
+- Added the app icon to the PyInstaller executable, installer, and runtime window metadata.
+- Updated app/package/installer version metadata to `0.1.1`.
+
 ## 0.1.0 - Phase 1 MVP
 
 - Added PySide6 project scaffold with `src/` package layout.

@@ -5,12 +5,15 @@ from PyInstaller.utils.hooks import collect_all
 block_cipher = None
 
 imageio_datas, imageio_binaries, imageio_hiddenimports = collect_all("imageio_ffmpeg")
+app_datas = [
+    ("src/audiotranscriber/assets/app.ico", "audiotranscriber/assets"),
+]
 
 a = Analysis(
     ["src/audiotranscriber/main.py"],
     pathex=["src"],
     binaries=imageio_binaries,
-    datas=imageio_datas,
+    datas=imageio_datas + app_datas,
     hiddenimports=imageio_hiddenimports,
     hookspath=[],
     hooksconfig={},
@@ -35,6 +38,7 @@ exe = EXE(
     upx=True,
     console=False,
     disable_windowed_traceback=False,
+    icon="src/audiotranscriber/assets/app.ico",
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,

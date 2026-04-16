@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtCore import QUrl
-from PySide6.QtGui import QAction, QActionGroup, QDesktopServices
+from PySide6.QtGui import QAction, QActionGroup, QDesktopServices, QIcon
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
     QApplication,
@@ -66,6 +67,7 @@ class RecorderStripWindow(QMainWindow):
         self._media_player.setAudioOutput(self._audio_output)
 
         self.setWindowTitle("AudioTranscriber")
+        self.setWindowIcon(QIcon(str(_resource_path("audiotranscriber/assets/app.ico"))))
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.Tool
@@ -856,3 +858,8 @@ class RecorderStripWindow(QMainWindow):
         minutes = (seconds % 3600) // 60
         secs = seconds % 60
         return f"{hours:02}:{minutes:02}:{secs:02}"
+
+
+def _resource_path(relative_path: str) -> Path:
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
+    return base / relative_path
