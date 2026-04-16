@@ -1,58 +1,52 @@
 # AudioTranscriber
 
-Compact local recording and transcription strip for desktop interviews and conversations.
+Compact local desktop recorder and transcription strip for interviews, notes, and
+conversations.
 
-## Phase 1 / 2 / 3.5
+AudioTranscriber records WAV audio locally, creates chunked transcripts with
+`faster-whisper`, and stays out of the way as a small floating PySide6 strip.
 
-This checkpoint implements the PySide6 visual MVP, local recording basics, and
-chunked transcription:
+## Features
 
-- Floating compact strip with dark rounded styling.
+- Floating compact recorder strip with dark rounded styling.
+- Magnetic snap to the top screen edge, with release when pulled down.
+- Green ready, blinking red recording, and yellow processing status indicators.
+- Timer and lightweight audio level preview.
 - Collapsible transcript panel below the strip.
-- Idle, recording, paused, and processing states.
-- Green idle, blinking red recording, yellow processing/paused indicators.
-- Timer and lightweight waveform preview.
-- Timestamped raw WAV recording. Dev uses `recordings/`; production uses
-  `Documents/AudioTranscriber/Recordings`.
-- Microphone input is the default input source.
-- Right-click `Microphone input` menu with auto-detect and remembered device choices.
-- Test tone input for machines without a microphone in the development profile.
-- Right-click action to open the recordings folder.
-- Dev sample selection from ignored `dev_samples/` for Phase 3 transcription work in
-  the development profile.
-- Chunked background transcription with `faster-whisper` defaults: `base`, `cpu`, `int8`.
-- Incremental `.txt` transcript saving next to the recorded audio source.
-- Stop button cancels active transcription after the current chunk completes.
-- Transcript panel uses a scrollable viewport during long transcripts.
-- Floating strip can snap magnetically to the top of the screen and releases when pulled down.
-- Right-click playback for the selected dev sample.
-- Dev samples can be used as a recording input source for end-to-end testing.
-- Near-real-time transcript preview updates from short completed chunks while recording.
-- Main strip language selector: `AUTO`, `NL`, or `EN`.
-- Language can be changed during recording; new chunks use the updated selection.
-- Stop only drains/merges queued live chunks instead of starting a second transcription pass.
-- Post-processing actions for any saved WAV recording:
-  - `WAV to MP3 Backup` lets you pick a WAV and creates `*.backup.mp3`.
-  - `WAV to High Quality Transcript` lets you pick a WAV and creates
-    `*.high-quality.txt` using the high-quality preset.
-  - High-quality transcription confirms the selected language before starting.
-  - The transcript panel shows a progress bar while post-processing runs.
-- Production profile keeps the context menu focused on microphone recording,
-  microphone device selection, recordings folder, post-processing, update check, and close.
+- Local WAV recording at 16 kHz, mono, 16-bit PCM.
+- Microphone recording through `sounddevice`.
+- Right-click `Microphone input` menu with:
+  - `Auto-detect`
+  - explicit input-device choices
+  - remembered device selection in user settings
+  - fallback to auto-detect when no device is selected
+- Production microphone diagnostics from the context menu.
+- Near-real-time transcript preview from completed recording chunks.
+- Incremental `.txt` transcript saving next to the recorded audio.
+- Language selector on the strip: `AUTO`, `NL`, or `EN`.
+- Language can be changed while recording; future chunks use the new selection.
+- Post-processing for saved WAV files:
+  - `WAV to MP3 Backup` creates `*.backup.mp3`.
+  - `WAV to High Quality Transcript` creates `*.high-quality.txt`.
+- GitHub Releases update check in production builds.
+- Model cache refresh action for clearing local Whisper model files.
 
-Phase 2 raw audio format:
+Development builds also expose test tools:
+
+- Test tone input for machines without a microphone.
+- Dev sample selection from `dev_samples/`.
+- Dev sample playback.
+- Dev sample recording input for end-to-end recording/transcription checks.
+
+## Recording And Transcription
+
+Recordings are saved as:
 
 ```text
 WAV, 16 kHz, mono, 16-bit PCM
-Default input: microphone
 ```
 
-Development audio samples can be placed in `dev_samples/`. That folder is ignored by git.
-Use the app's right-click menu to select a sample. Choose `Use dev sample input` when you
-want the red record button to record that sample into a new WAV and then run the normal
-stop/transcription flow.
-
-Phase 3 transcription defaults:
+Transcription defaults:
 
 ```text
 model=base
@@ -62,69 +56,85 @@ live_chunk_seconds=4
 language=auto | nl | en
 ```
 
-Post-processing presets:
+The live transcript is chunk-based. It is intended as a recent preview while recording,
+not perfect live dictation. When recording stops, queued live chunks are drained and the
+same live transcription path is saved. The normal recording flow does not start a second
+transcription pass after stop.
+
+High-quality transcription uses:
 
 ```text
-mp3_backup=ffmpeg via system PATH or bundled imageio-ffmpeg, libmp3lame, 96k
-high_quality_transcript=faster-whisper small, cpu, int8, 15s chunks
+model=small
+device=cpu
+compute_type=int8
+chunk_seconds=15
+output=*.high-quality.txt
 ```
 
-Build/runtime profiles:
+MP3 backup uses ffmpeg from the system `PATH` first, then falls back to
+`imageio-ffmpeg` for packaged builds.
+
+## Runtime Profiles
+
+The app behavior is controlled by `AUDIOTRANSCRIBER_PROFILE`.
 
 ```text
 AUDIOTRANSCRIBER_PROFILE=dev
-  project recordings folder
-  input selector, test tone, and dev sample menu actions
-  model cache in .models/
-
-AUDIOTRANSCRIBER_PROFILE=prod
-  Documents/AudioTranscriber/Recordings
-  microphone-only production menu with device selection
-  model cache in the OS app data folder
-  models download on first use
 ```
 
-Production user-facing errors are kept explicit for common setup problems:
+Dev profile:
 
-- Missing or blocked microphone input.
-- First-use model download failures when internet is unavailable.
+- Uses project-local `recordings/`.
+- Uses project-local `.models/` for the faster-whisper cache.
+- Shows input selector, test tone, and dev sample actions.
+- Used by `run.ps1`, `dev.ps1`, and `run.bat`.
 
-Optional update URL:
+```text
+AUDIOTRANSCRIBER_PROFILE=prod
+```
+
+Prod profile:
+
+- Uses microphone recording only.
+- Shows microphone device selection and diagnostics.
+- Hides test tone and dev sample actions.
+- Stores recordings in `Documents/AudioTranscriber/Recordings`.
+- Stores models in the OS app data folder.
+- Downloads models on first use.
+- Checks GitHub Releases for updates.
+- Used by frozen/package builds unless the environment variable overrides it.
+
+Optional update repository override:
 
 ```text
 AUDIOTRANSCRIBER_UPDATE_REPO=jwamsterdam/audiotranscriber
 ```
 
-The production menu uses GitHub Releases for `Check for updates`. The default repo is
-`jwamsterdam/audiotranscriber`. It also reports whether the local Whisper model cache
-exists. `Refresh transcription models` clears the cache so the next transcription
-downloads fresh model files.
+## Development Run
 
-## Run
-
-On Windows, the easiest review command is:
+From the repository root:
 
 ```powershell
+cd C:\Users\jwhen\Desktop\audiotranscriber
 .\run.ps1
 ```
 
-If PowerShell script execution gets in the way, use:
+If PowerShell script execution gets in the way:
 
 ```powershell
 .\run.bat
 ```
 
-Both commands create `.venv` if needed, install the local package, and start the app.
-They explicitly run the `dev` profile.
+Both commands create `.venv` when needed, install the local package, set the dev
+profile, and start the app.
 
-For UI iteration with automatic restart after Python file changes:
+For restart-on-save UI iteration:
 
 ```powershell
 .\dev.ps1
 ```
 
-This is restart-on-save rather than true in-place hot reload. The app closes and reopens
-when files under `src/` change.
+This closes and restarts the app when files under `src/` change.
 
 Manual setup:
 
@@ -135,28 +145,6 @@ pip install -e .
 python -m audiotranscriber.main
 ```
 
-Production folder build on Windows:
-
-```powershell
-.\build-windows.ps1
-```
-
-This creates a PyInstaller folder build at `dist/AudioTranscriber/AudioTranscriber.exe`.
-Packaged/frozen builds default to the `prod` profile.
-Close any running `dist/AudioTranscriber/AudioTranscriber.exe` before rebuilding, because
-Windows locks loaded `.exe`, `.dll`, and `.pyd` files.
-
-Windows installer build:
-
-```powershell
-.\package-windows.ps1
-```
-
-This runs the production folder build and then uses Inno Setup 6, when installed, to
-create `installer/AudioTranscriberSetup-v0.1.2.exe`. The installer is per-user and
-installs to `%LOCALAPPDATA%\Programs\AudioTranscriber`, so it should not request admin
-elevation for normal installs.
-
 On macOS/Linux:
 
 ```bash
@@ -166,10 +154,109 @@ pip install -e .
 python -m audiotranscriber.main
 ```
 
-## Phase Notes
+## Windows Build
 
-Phase 2 now has raw WAV recording, pause/stop behavior, timestamped output paths, test tone input, microphone input, and a real audio level indicator.
-Phase 3 adds chunking plus faster-whisper background transcription.
-Phase 3.5 now uses one chunk-based live transcription pass written directly to `.txt`.
-Post-processing can create smaller MP3 backups and high-quality transcript files.
-Phase 4 should finalize MP3 export, error handling, settings, and packaging preparation.
+Close any running `AudioTranscriber.exe` before building. Windows locks loaded
+`.exe`, `.dll`, and `.pyd` files.
+
+Create the production folder build:
+
+```powershell
+cd C:\Users\jwhen\Desktop\audiotranscriber
+.\build-windows.ps1
+```
+
+Output:
+
+```text
+dist\AudioTranscriber\AudioTranscriber.exe
+```
+
+The build script:
+
+- creates `.venv` when needed;
+- installs the local package;
+- installs PyInstaller;
+- sets `AUDIOTRANSCRIBER_PROFILE=prod`;
+- sets `TEMP` and `TMP` to `.tmp\build`;
+- runs PyInstaller with `audiotranscriber.spec`.
+
+Create the Windows installer:
+
+```powershell
+.\package-windows.ps1
+```
+
+Output:
+
+```text
+installer\AudioTranscriberSetup-v0.1.3.exe
+```
+
+`package-windows.ps1` runs the production folder build first, then uses Inno Setup 6
+when it is installed. The installer is per-user and installs to:
+
+```text
+%LOCALAPPDATA%\Programs\AudioTranscriber
+```
+
+Create the portable Windows zip from the folder build:
+
+```powershell
+Compress-Archive -Path .\dist\AudioTranscriber\* -DestinationPath .\installer\AudioTranscriber-v0.1.3-windows.zip -Force
+```
+
+Check expected outputs:
+
+```powershell
+Get-Item .\dist\AudioTranscriber\AudioTranscriber.exe
+Get-Item .\installer\AudioTranscriberSetup-v0.1.3.exe
+Get-Item .\installer\AudioTranscriber-v0.1.3-windows.zip
+```
+
+## Release Checklist
+
+Update version references before a release:
+
+- `pyproject.toml`
+- `src/audiotranscriber/app_config.py`
+- `installer-windows.iss`
+- `package-windows.ps1`
+- `README.md`
+- `CHANGELOG.md`
+
+Validate:
+
+```powershell
+.\.venv\Scripts\python.exe -m compileall src\audiotranscriber
+git diff --check
+.\build-windows.ps1
+.\package-windows.ps1
+Compress-Archive -Path .\dist\AudioTranscriber\* -DestinationPath .\installer\AudioTranscriber-v0.1.3-windows.zip -Force
+```
+
+Commit and tag:
+
+```powershell
+git status --short
+git add CHANGELOG.md README.md pyproject.toml installer-windows.iss package-windows.ps1 src\audiotranscriber
+git commit -m "Prepare v0.1.3 microphone input selection release"
+git tag -a v0.1.3 -m "AudioTranscriber v0.1.3"
+git push origin main
+git push origin v0.1.3
+```
+
+Publish a GitHub Release with:
+
+- `installer\AudioTranscriberSetup-v0.1.3.exe`
+- `installer\AudioTranscriber-v0.1.3-windows.zip`
+
+## Local Files
+
+These local/generated paths should not be committed:
+
+- `recordings/`
+- `dev_samples/`
+- `.models/`
+- `.tmp/`
+- build outputs under `build/`, `dist/`, and `installer/`
