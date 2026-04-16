@@ -18,16 +18,15 @@ chunked transcription:
 - Right-click actions to open the recordings folder, last recording, or transcript.
 - Dev sample selection from ignored `dev_samples/` for Phase 3 transcription work.
 - Chunked background transcription with `faster-whisper` defaults: `base`, `cpu`, `int8`.
-- Incremental `*.live.txt` preview saving and final `*.final.txt` transcript saving next to the recorded audio source.
+- Incremental `.txt` transcript saving next to the recorded audio source.
 - Stop button cancels active transcription after the current chunk completes.
 - Transcript panel uses a scrollable viewport during long transcripts.
 - Right-click playback for the selected dev sample.
 - Dev samples can be used as a recording input source for end-to-end testing.
 - Near-real-time transcript preview updates from short completed chunks while recording.
-- Final 15-second chunks are transcribed separately during recording and kept out of the live view.
 - Main strip language selector: `AUTO`, `NL`, or `EN`.
-- Stop only drains/merges queued chunks instead of retranscribing the whole recording.
-- The visible transcript stays quick-and-dirty during recording, then switches to final text after stop.
+- Context-menu transcription mode selection, currently `live chunks only`.
+- Stop only drains/merges queued live chunks instead of starting a second transcription pass.
 
 Phase 2 raw audio format:
 
@@ -47,8 +46,8 @@ model=base
 device=cpu
 compute_type=int8
 live_chunk_seconds=4
-final_chunk_seconds=15
 language=auto | nl | en
+mode=live_only
 ```
 
 ## Run
@@ -98,6 +97,5 @@ python -m audiotranscriber.main
 
 Phase 2 now has raw WAV recording, pause/stop behavior, timestamped output paths, test tone input, microphone input, and a real audio level indicator.
 Phase 3 adds chunking plus faster-whisper background transcription.
-Phase 3.5 adds short live preview chunks plus separate final chunks that are merged on stop.
-For comparison during development, recordings save both `*.live.txt` and `*.final.txt`.
+Phase 3.5 now uses one live transcription pass that is written directly to `.txt`.
 Phase 4 should finalize MP3 export, error handling, settings, and packaging preparation.

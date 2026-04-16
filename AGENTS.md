@@ -7,7 +7,7 @@ This project is a lightweight local desktop recorder and transcription strip.
 Phase 3.5 is in progress. The app has a PySide6 UI, local WAV recording, a test tone input
 for machines without a microphone, optional microphone input through `sounddevice`, a timer,
 audio level preview, a collapsible transcript panel, and chunked `faster-whisper`
-transcription, plus decoupled live and final transcript lanes.
+transcription, with a single live transcription lane written directly to `.txt`.
 
 ## Architecture
 
@@ -46,15 +46,13 @@ Phase 3:
 
 - Default config is `model=base`, `device=cpu`, `compute_type=int8`.
 - Live preview chunks are currently 4 seconds for more responsive updates while recording.
-- Final chunks are currently 15 seconds and run during recording for better context.
 - The main strip language selector supports auto-detect, Dutch (`nl`), and English (`en`).
 - Transcripts are saved incrementally as `.txt` next to the recorded audio file.
-- Normal recording flow saves `*.live.txt` for the quick preview and `*.final.txt` for the final transcript.
+- Normal recording flow uses `TranscriptionMode.LIVE_ONLY`.
 - Dev samples in `dev_samples/` can be selected from the right-click menu.
 - Dev samples can be used directly as an input source for end-to-end recording/transcription tests.
 - Near-real-time preview is chunk-based and updates from completed chunks while recording.
-- Do not apply final chunk text to the visible live transcript during recording.
-- After stop, queued final chunks are drained and merged. Do not start a full-file retranscription
+- After stop, queued live chunks are drained and saved. Do not start a second transcription pass
   for the normal recording flow.
 - UI transcript updates preserve scroll position unless the user is already at the bottom.
 

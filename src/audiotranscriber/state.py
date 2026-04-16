@@ -25,6 +25,10 @@ class TranscriptionLanguage(str, Enum):
     ENGLISH = "en"
 
 
+class TranscriptionMode(str, Enum):
+    LIVE_ONLY = "live_only"
+
+
 @dataclass(frozen=True)
 class RecorderState:
     status: RecorderStatus = RecorderStatus.IDLE
@@ -33,6 +37,7 @@ class RecorderState:
     last_update_seconds: int | None = None
     input_source: InputSource = InputSource.TEST_TONE
     transcription_language: TranscriptionLanguage = TranscriptionLanguage.AUTO
+    transcription_mode: TranscriptionMode = TranscriptionMode.LIVE_ONLY
     audio_level: float = 0.0
     output_audio_path: str | None = None
     transcript_output_path: str | None = None
