@@ -152,7 +152,7 @@ Windows installer build:
 ```
 
 This runs the production folder build and then uses Inno Setup 6, when installed, to
-create `installer/AudioTranscriberSetup-v0.1.1.exe`. The installer is per-user and
+create `installer/AudioTranscriberSetup-v0.1.2.exe`. The installer is per-user and
 installs to `%LOCALAPPDATA%\Programs\AudioTranscriber`, so it should not request admin
 elevation for normal installs.
 

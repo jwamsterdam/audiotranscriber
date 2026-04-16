@@ -108,6 +108,9 @@ class AppController(QObject):
     def dev_samples_dir(self) -> Path:
         return Path.cwd() / "dev_samples"
 
+    def microphone_diagnostics(self) -> str:
+        return self._recorder.microphone_diagnostics()
+
     def emit_current_state(self) -> None:
         self.state_changed.emit(self._state)
 

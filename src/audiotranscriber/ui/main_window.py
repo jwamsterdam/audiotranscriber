@@ -350,6 +350,13 @@ class RecorderStripWindow(QMainWindow):
             menu.addAction(refresh_models_action)
             menu.addSeparator()
 
+        diagnostics_action = QAction("Show microphone diagnostics", menu)
+        diagnostics_action.setEnabled(self._controller is not None)
+        diagnostics_action.triggered.connect(self._show_microphone_diagnostics)
+        menu.addAction(diagnostics_action)
+
+        menu.addSeparator()
+
         close_action = QAction("Close app", menu)
         close_action.triggered.connect(self.close)
         menu.addAction(close_action)
@@ -641,6 +648,16 @@ class RecorderStripWindow(QMainWindow):
             return
 
         self._controller.refresh_transcription_models()
+
+    def _show_microphone_diagnostics(self) -> None:
+        if self._controller is None:
+            return
+
+        QMessageBox.information(
+            self,
+            "Microphone diagnostics",
+            self._controller.microphone_diagnostics(),
+        )
 
     def _handle_update_check_finished(self, info: UpdateInfo) -> None:
         if info.error:

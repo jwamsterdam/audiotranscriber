@@ -3,7 +3,11 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $VenvPython = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
 $DistExe = Join-Path $ProjectRoot "dist\AudioTranscriber\AudioTranscriber.exe"
+$BuildTempPath = Join-Path $ProjectRoot ".tmp\build"
 $env:AUDIOTRANSCRIBER_PROFILE = "prod"
+$env:TEMP = $BuildTempPath
+$env:TMP = $BuildTempPath
+New-Item -ItemType Directory -Force -Path $BuildTempPath | Out-Null
 
 function Invoke-Checked {
     param(

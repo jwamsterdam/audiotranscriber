@@ -15,6 +15,7 @@ dev_samples/
 
 # Distribution / packaging
 .Python
+.tmp/
 build/
 develop-eggs/
 dist/

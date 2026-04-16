@@ -2,6 +2,13 @@
 
 All notable changes to AudioTranscriber will be documented in this file.
 
+## 0.1.2 - Microphone Detection
+
+- Made microphone detection more robust by scanning all available input devices instead of relying only on the Windows default input.
+- Added fallback behavior to use the first available input device when no valid default input is reported.
+- Added `Show microphone diagnostics` to the production context menu so users can see which input devices are detected.
+- Improved microphone startup errors by including the selected input device when startup fails.
+
 ## 0.1.1 - Production Packaging
 
 - Switched the Windows installer to per-user install under `%LOCALAPPDATA%\Programs\AudioTranscriber`.

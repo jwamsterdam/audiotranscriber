@@ -59,6 +59,39 @@ class RecordingPipeline:
     def output_path(self) -> Path | None:
         return self._output_path
 
+    @staticmethod
+    def microphone_diagnostics() -> str:
+        try:
+            import sounddevice as sd
+        except ImportError:
+            return "Microphone backend is missing from this app build."
+
+        try:
+            devices = sd.query_devices()
+        except Exception as exc:  # noqa: BLE001
+            return f"Could not read audio devices:\n{exc}"
+
+        lines = ["Detected input devices:"]
+        found = False
+        for index, device in enumerate(devices):
+            channels = int(device.get("max_input_channels", 0))
+            if channels <= 0:
+                continue
+            found = True
+            marker = ""
+            try:
+                marker = " (default)" if sd.default.device[0] == index else ""
+            except Exception:  # noqa: BLE001
+                marker = ""
+            lines.append(
+                f"- {index}: {device.get('name', 'Unknown input')} "
+                f"({channels} channels){marker}"
+            )
+
+        if not found:
+            lines.append("- none")
+        return "\n".join(lines)
+
     def start(
         self,
         source: InputSource,
@@ -165,6 +198,7 @@ class RecordingPipeline:
                 "Microphone support is missing from this app build. "
                 "Please reinstall AudioTranscriber."
             ) from exc
+        device_index, device_name = _select_input_device(sd)
 
         def callback(indata, frames, time_info, status) -> None:  # noqa: ANN001
             del frames, time_info, status
@@ -178,6 +212,7 @@ class RecordingPipeline:
 
         try:
             with sd.RawInputStream(
+                device=device_index,
                 samplerate=SAMPLE_RATE,
                 channels=CHANNELS,
                 dtype="int16",
@@ -187,7 +222,7 @@ class RecordingPipeline:
                 while not self._stop_event.is_set():
                     time.sleep(CHUNK_SECONDS)
         except Exception as exc:  # noqa: BLE001
-            raise RuntimeError(_friendly_microphone_error(exc)) from exc
+            raise RuntimeError(_friendly_microphone_error(exc, device_name)) from exc
 
     def _record_dev_sample(self, source_path: Path) -> None:
         audio = _decode_audio_file(source_path)
@@ -263,10 +298,7 @@ class RecordingPipeline:
                 "Please reinstall AudioTranscriber."
             ) from exc
 
-        try:
-            sd.query_devices(kind="input")
-        except Exception as exc:  # noqa: BLE001
-            raise RuntimeError(_friendly_microphone_error(exc)) from exc
+        _select_input_device(sd)
 
 
 def _level_from_int16(raw: bytes) -> float:
@@ -283,24 +315,58 @@ def _level_from_int16(raw: bytes) -> float:
     return min(1.0, (total / sample_count) / MAX_INT16 * 4.0)
 
 
-def _friendly_microphone_error(error: Exception) -> str:
+def _select_input_device(sd) -> tuple[int, str]:  # noqa: ANN001
+    try:
+        devices = sd.query_devices()
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(_friendly_microphone_error(exc)) from exc
+
+    input_devices: list[tuple[int, str]] = []
+    for index, device in enumerate(devices):
+        if int(device.get("max_input_channels", 0)) > 0:
+            input_devices.append((index, str(device.get("name", f"Input device {index}"))))
+
+    if not input_devices:
+        raise RuntimeError(
+            "No microphone input was found. Connect a microphone, check that Windows sees "
+            "an input device, then restart AudioTranscriber."
+        )
+
+    try:
+        default_input = sd.default.device[0]
+    except Exception:  # noqa: BLE001
+        default_input = None
+
+    if isinstance(default_input, int) and default_input >= 0:
+        for index, name in input_devices:
+            if index == default_input:
+                return index, name
+
+    return input_devices[0]
+
+
+def _friendly_microphone_error(error: Exception, device_name: str | None = None) -> str:
     detail = str(error).strip()
     lower_detail = detail.lower()
+    device_hint = f"\n\nSelected input device: {device_name}" if device_name else ""
     if any(word in lower_detail for word in {"permission", "access", "denied", "privacy"}):
         return (
             "Microphone access was blocked. Allow AudioTranscriber to use the microphone "
             "in Windows privacy settings, then restart the app and try again."
+            f"{device_hint}"
         )
 
     if any(word in lower_detail for word in {"device", "input", "invalid", "unavailable"}):
         return (
             "No microphone input was found. Connect a microphone, check that Windows sees "
             "an input device, then restart AudioTranscriber."
+            f"{device_hint}"
         )
 
     return (
         "The microphone could not be started. Check that a microphone is connected, that "
         "Windows microphone permissions are enabled, and that no other app is blocking it."
+        f"{device_hint}"
     )
 
 
