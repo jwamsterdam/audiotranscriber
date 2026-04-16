@@ -8,6 +8,7 @@ import threading
 import time
 import wave
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -24,6 +25,22 @@ LevelCallback = Callable[[float], None]
 ChunkCallback = Callable[[bytes, int], None]
 ErrorCallback = Callable[[str], None]
 LIVE_CHUNK_SECONDS = 4
+
+
+@dataclass(frozen=True)
+class MicrophoneDevice:
+    index: int
+    name: str
+    host_api: str
+    max_input_channels: int
+
+    @property
+    def key(self) -> str:
+        return f"{_normalise_device_part(self.host_api)}::{_normalise_device_part(self.name)}"
+
+    @property
+    def label(self) -> str:
+        return f"{self.name} ({self.host_api})"
 
 
 class RecordingPipeline:
@@ -50,6 +67,7 @@ class RecordingPipeline:
         self._wave_file: wave.Wave_write | None = None
         self._output_path: Path | None = None
         self._source = InputSource.TEST_TONE
+        self._microphone_device_key: str | None = None
 
     @property
     def output_dir(self) -> Path:
@@ -60,35 +78,46 @@ class RecordingPipeline:
         return self._output_path
 
     @staticmethod
-    def microphone_diagnostics() -> str:
+    def list_microphone_devices() -> list[MicrophoneDevice]:
+        try:
+            import sounddevice as sd
+        except ImportError:
+            return []
+
+        try:
+            return _list_input_devices(sd)
+        except Exception as exc:  # noqa: BLE001
+            print(f"Could not read audio devices: {exc}", flush=True)
+            return []
+
+    @staticmethod
+    def microphone_diagnostics(selected_device_key: str | None = None) -> str:
         try:
             import sounddevice as sd
         except ImportError:
             return "Microphone backend is missing from this app build."
 
         try:
-            devices = sd.query_devices()
+            input_devices = _list_input_devices(sd)
         except Exception as exc:  # noqa: BLE001
             return f"Could not read audio devices:\n{exc}"
 
         lines = ["Detected input devices:"]
-        found = False
-        for index, device in enumerate(devices):
-            channels = int(device.get("max_input_channels", 0))
-            if channels <= 0:
-                continue
-            found = True
+        for device in input_devices:
             marker = ""
             try:
-                marker = " (default)" if sd.default.device[0] == index else ""
+                if sd.default.device[0] == device.index:
+                    marker += " (default)"
             except Exception:  # noqa: BLE001
-                marker = ""
+                pass
+            if selected_device_key and device.key == selected_device_key:
+                marker += " (selected)"
             lines.append(
-                f"- {index}: {device.get('name', 'Unknown input')} "
-                f"({channels} channels){marker}"
+                f"- {device.index}: {device.name} "
+                f"({device.max_input_channels} channels, {device.host_api}){marker}"
             )
 
-        if not found:
+        if not input_devices:
             lines.append("- none")
         return "\n".join(lines)
 
@@ -96,14 +125,16 @@ class RecordingPipeline:
         self,
         source: InputSource,
         source_path: Path | None = None,
+        microphone_device_key: str | None = None,
         chunk_seconds: int = LIVE_CHUNK_SECONDS,
     ) -> Path:
         if self._thread and self._thread.is_alive():
             raise RuntimeError("Recording is already running.")
 
         self._source = source
+        self._microphone_device_key = microphone_device_key
         if source == InputSource.MICROPHONE:
-            self._check_microphone_available()
+            self._check_microphone_available(microphone_device_key)
         if source == InputSource.DEV_SAMPLE and source_path is None:
             raise RuntimeError("No dev sample selected for recording.")
 
@@ -198,7 +229,7 @@ class RecordingPipeline:
                 "Microphone support is missing from this app build. "
                 "Please reinstall AudioTranscriber."
             ) from exc
-        device_index, device_name = _select_input_device(sd)
+        device_index, device_name = _select_input_device(sd, self._microphone_device_key)
 
         def callback(indata, frames, time_info, status) -> None:  # noqa: ANN001
             del frames, time_info, status
@@ -289,7 +320,7 @@ class RecordingPipeline:
         return SAMPLE_RATE * max(1, seconds) * SAMPLE_WIDTH_BYTES
 
     @staticmethod
-    def _check_microphone_available() -> None:
+    def _check_microphone_available(microphone_device_key: str | None = None) -> None:
         try:
             import sounddevice as sd
         except ImportError as exc:
@@ -298,7 +329,7 @@ class RecordingPipeline:
                 "Please reinstall AudioTranscriber."
             ) from exc
 
-        _select_input_device(sd)
+        _select_input_device(sd, microphone_device_key)
 
 
 def _level_from_int16(raw: bytes) -> float:
@@ -315,16 +346,47 @@ def _level_from_int16(raw: bytes) -> float:
     return min(1.0, (total / sample_count) / MAX_INT16 * 4.0)
 
 
-def _select_input_device(sd) -> tuple[int, str]:  # noqa: ANN001
+def _list_input_devices(sd) -> list[MicrophoneDevice]:  # noqa: ANN001
     try:
         devices = sd.query_devices()
     except Exception as exc:  # noqa: BLE001
         raise RuntimeError(_friendly_microphone_error(exc)) from exc
 
-    input_devices: list[tuple[int, str]] = []
+    try:
+        host_apis = sd.query_hostapis()
+    except Exception:  # noqa: BLE001
+        host_apis = []
+
+    input_devices: list[MicrophoneDevice] = []
     for index, device in enumerate(devices):
-        if int(device.get("max_input_channels", 0)) > 0:
-            input_devices.append((index, str(device.get("name", f"Input device {index}"))))
+        channels = int(device.get("max_input_channels", 0))
+        if channels <= 0:
+            continue
+
+        host_api_name = "Unknown"
+        try:
+            host_api_index = int(device.get("hostapi", -1))
+            host_api_name = str(host_apis[host_api_index].get("name", host_api_name))
+        except Exception:  # noqa: BLE001
+            host_api_name = "Unknown"
+
+        input_devices.append(
+            MicrophoneDevice(
+                index=index,
+                name=str(device.get("name", f"Input device {index}")),
+                host_api=host_api_name,
+                max_input_channels=channels,
+            )
+        )
+
+    return input_devices
+
+
+def _select_input_device(
+    sd,  # noqa: ANN001
+    preferred_device_key: str | None = None,
+) -> tuple[int, str]:
+    input_devices = _list_input_devices(sd)
 
     if not input_devices:
         raise RuntimeError(
@@ -332,17 +394,27 @@ def _select_input_device(sd) -> tuple[int, str]:  # noqa: ANN001
             "an input device, then restart AudioTranscriber."
         )
 
+    if preferred_device_key:
+        for device in input_devices:
+            if device.key == preferred_device_key:
+                return device.index, device.label
+
     try:
         default_input = sd.default.device[0]
     except Exception:  # noqa: BLE001
         default_input = None
 
     if isinstance(default_input, int) and default_input >= 0:
-        for index, name in input_devices:
-            if index == default_input:
-                return index, name
+        for device in input_devices:
+            if device.index == default_input:
+                return device.index, device.label
 
-    return input_devices[0]
+    fallback = input_devices[0]
+    return fallback.index, fallback.label
+
+
+def _normalise_device_part(value: str) -> str:
+    return " ".join(value.casefold().split())
 
 
 def _friendly_microphone_error(error: Exception, device_name: str | None = None) -> str:

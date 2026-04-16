@@ -2,6 +2,11 @@
 
 All notable changes to AudioTranscriber will be documented in this file.
 
+## Unreleased
+
+- Added a persistent `Microphone input` context-menu submenu with auto-detect and explicit input-device choices.
+- Saved the selected microphone device in user settings and used it for future microphone recordings, with auto-detect fallback when no saved device is selected.
+
 ## 0.1.2 - Microphone Detection
 
 - Made microphone detection more robust by scanning all available input devices instead of relying only on the Windows default input.

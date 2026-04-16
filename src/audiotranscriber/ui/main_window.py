@@ -299,6 +299,8 @@ class RecorderStripWindow(QMainWindow):
         menu = QMenu(self)
         menu.setObjectName("contextMenu")
 
+        self._add_microphone_device_actions(menu)
+
         if self._config.show_input_selector:
             self._add_input_source_actions(menu)
 
@@ -377,17 +379,6 @@ class RecorderStripWindow(QMainWindow):
             )
             menu.addAction(test_tone_action)
 
-        microphone_action = QAction("Use microphone input", menu)
-        microphone_action.setCheckable(True)
-        microphone_action.setChecked(
-            self._controller is not None
-            and self._controller.state.input_source == InputSource.MICROPHONE
-        )
-        microphone_action.triggered.connect(
-            lambda: self._controller and self._controller.set_input_source(InputSource.MICROPHONE)
-        )
-        menu.addAction(microphone_action)
-
         if self._config.show_dev_samples:
             dev_sample_input_action = QAction("Use dev sample input", menu)
             dev_sample_input_action.setCheckable(True)
@@ -402,6 +393,62 @@ class RecorderStripWindow(QMainWindow):
             )
             menu.addAction(dev_sample_input_action)
 
+        menu.addSeparator()
+
+    def _add_microphone_device_actions(self, menu: QMenu) -> None:
+        microphone_menu = QMenu("Microphone input", menu)
+        microphone_menu.setObjectName("contextMenu")
+        action_group = QActionGroup(microphone_menu)
+        action_group.setExclusive(True)
+
+        busy = (
+            self._controller is None
+            or self._controller.state.status
+            in {
+                RecorderStatus.RECORDING,
+                RecorderStatus.PAUSED,
+                RecorderStatus.PROCESSING,
+            }
+        )
+
+        auto_action = QAction("Auto-detect", microphone_menu)
+        auto_action.setCheckable(True)
+        auto_action.setChecked(
+            self._controller is not None
+            and self._controller.state.input_source == InputSource.MICROPHONE
+            and self._controller.state.selected_microphone_device_key is None
+        )
+        auto_action.setEnabled(not busy)
+        auto_action.triggered.connect(
+            lambda: self._controller and self._controller.set_microphone_device(None)
+        )
+        action_group.addAction(auto_action)
+        microphone_menu.addAction(auto_action)
+
+        devices = self._controller.microphone_devices() if self._controller is not None else []
+        if devices:
+            microphone_menu.addSeparator()
+            for device in devices:
+                device_action = QAction(device.label.replace("&", "&&"), microphone_menu)
+                device_action.setCheckable(True)
+                device_action.setChecked(
+                    self._controller is not None
+                    and self._controller.state.input_source == InputSource.MICROPHONE
+                    and self._controller.state.selected_microphone_device_key == device.key
+                )
+                device_action.setEnabled(not busy)
+                device_action.triggered.connect(
+                    lambda _checked=False, key=device.key: self._controller
+                    and self._controller.set_microphone_device(key)
+                )
+                action_group.addAction(device_action)
+                microphone_menu.addAction(device_action)
+        else:
+            no_devices_action = QAction("No input devices found", microphone_menu)
+            no_devices_action.setEnabled(False)
+            microphone_menu.addAction(no_devices_action)
+
+        menu.addMenu(microphone_menu)
         menu.addSeparator()
 
     def _add_dev_sample_actions(self, menu: QMenu) -> None:

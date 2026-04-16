@@ -15,6 +15,7 @@ chunked transcription:
 - Timestamped raw WAV recording. Dev uses `recordings/`; production uses
   `Documents/AudioTranscriber/Recordings`.
 - Microphone input is the default input source.
+- Right-click `Microphone input` menu with auto-detect and remembered device choices.
 - Test tone input for machines without a microphone in the development profile.
 - Right-click action to open the recordings folder.
 - Dev sample selection from ignored `dev_samples/` for Phase 3 transcription work in
@@ -37,7 +38,7 @@ chunked transcription:
   - High-quality transcription confirms the selected language before starting.
   - The transcript panel shows a progress bar while post-processing runs.
 - Production profile keeps the context menu focused on microphone recording,
-  recordings folder, post-processing, update check, and close.
+  microphone device selection, recordings folder, post-processing, update check, and close.
 
 Phase 2 raw audio format:
 
@@ -78,7 +79,7 @@ AUDIOTRANSCRIBER_PROFILE=dev
 
 AUDIOTRANSCRIBER_PROFILE=prod
   Documents/AudioTranscriber/Recordings
-  microphone-only production menu
+  microphone-only production menu with device selection
   model cache in the OS app data folder
   models download on first use
 ```

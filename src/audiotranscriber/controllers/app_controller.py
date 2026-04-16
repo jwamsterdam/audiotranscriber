@@ -7,7 +7,7 @@ from pathlib import Path
 from queue import Queue
 from threading import Event, Thread
 
-from PySide6.QtCore import QObject, QTimer, Signal
+from PySide6.QtCore import QObject, QSettings, QTimer, Signal
 
 from audiotranscriber.app_config import AppConfig
 from audiotranscriber.pipelines.post_processing import (
@@ -16,7 +16,11 @@ from audiotranscriber.pipelines.post_processing import (
     high_quality_transcript_path_for,
     high_quality_transcription_config,
 )
-from audiotranscriber.pipelines.recording import LIVE_CHUNK_SECONDS, RecordingPipeline
+from audiotranscriber.pipelines.recording import (
+    LIVE_CHUNK_SECONDS,
+    MicrophoneDevice,
+    RecordingPipeline,
+)
 from audiotranscriber.pipelines.transcription import TranscriptionConfig, TranscriptionPipeline
 from audiotranscriber.state import (
     InputSource,
@@ -25,6 +29,8 @@ from audiotranscriber.state import (
     TranscriptionLanguage,
 )
 from audiotranscriber.update_checker import check_for_updates, refresh_model_cache
+
+MICROPHONE_DEVICE_SETTING = "audio/microphoneDeviceKey"
 
 
 class AppController(QObject):
@@ -49,7 +55,17 @@ class AppController(QObject):
     def __init__(self, config: AppConfig, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._config = config
-        self._state = RecorderState(input_source=config.default_input_source)
+        self._settings = QSettings(
+            QSettings.Format.IniFormat,
+            QSettings.Scope.UserScope,
+            "LocalTools",
+            "AudioTranscriber",
+        )
+        self._microphone_device_key = self._load_microphone_device_key()
+        self._state = RecorderState(
+            input_source=config.default_input_source,
+            selected_microphone_device_key=self._microphone_device_key,
+        )
         self._recorder = RecordingPipeline(
             config.recordings_dir,
             self.level_detected.emit,
@@ -109,7 +125,10 @@ class AppController(QObject):
         return Path.cwd() / "dev_samples"
 
     def microphone_diagnostics(self) -> str:
-        return self._recorder.microphone_diagnostics()
+        return self._recorder.microphone_diagnostics(self._microphone_device_key)
+
+    def microphone_devices(self) -> list[MicrophoneDevice]:
+        return self._recorder.list_microphone_devices()
 
     def emit_current_state(self) -> None:
         self.state_changed.emit(self._state)
@@ -172,6 +191,50 @@ class AppController(QObject):
             input_source=source,
             error_message=None,
             preview_text=f"Invoer ingesteld op {label}. Klaar voor opname.",
+        )
+
+    def set_microphone_device(self, device_key: str | None) -> None:
+        if self._state.status in {RecorderStatus.RECORDING, RecorderStatus.PAUSED}:
+            return
+
+        if device_key is None:
+            self._microphone_device_key = None
+            self._settings.remove(MICROPHONE_DEVICE_SETTING)
+            self._settings.sync()
+            self._set_state(
+                input_source=InputSource.MICROPHONE,
+                selected_microphone_device_key=None,
+                error_message=None,
+                preview_text="Microfooninvoer ingesteld op automatische detectie.",
+            )
+            return
+
+        selected = None
+        for device in self.microphone_devices():
+            if device.key == device_key:
+                selected = device
+                break
+
+        if selected is None:
+            self._set_state(
+                input_source=InputSource.MICROPHONE,
+                error_message="Microfooninvoer niet gevonden.",
+                transcript_open=True,
+                preview_text=(
+                    "Deze microfooninvoer is niet meer beschikbaar. "
+                    "Automatische detectie blijft beschikbaar."
+                ),
+            )
+            return
+
+        self._microphone_device_key = selected.key
+        self._settings.setValue(MICROPHONE_DEVICE_SETTING, selected.key)
+        self._settings.sync()
+        self._set_state(
+            input_source=InputSource.MICROPHONE,
+            selected_microphone_device_key=selected.key,
+            error_message=None,
+            preview_text=f"Microfooninvoer ingesteld op {selected.label}.",
         )
 
     def set_transcription_language(self, language: TranscriptionLanguage) -> None:
@@ -249,6 +312,7 @@ class AppController(QObject):
             output_path = self._recorder.start(
                 self._state.input_source,
                 source_path=source_path,
+                microphone_device_key=self._microphone_device_key,
             )
         except Exception as exc:  # noqa: BLE001
             self._elapsed_timer.stop()
@@ -952,3 +1016,9 @@ class AppController(QObject):
     def _set_state(self, **changes: object) -> None:
         self._state = replace(self._state, **changes)
         self.state_changed.emit(self._state)
+
+    def _load_microphone_device_key(self) -> str | None:
+        value = self._settings.value(MICROPHONE_DEVICE_SETTING, "", str)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        return None
