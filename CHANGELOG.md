@@ -71,3 +71,9 @@ All notable changes to AudioTranscriber will be documented in this file.
 - Removed the experimental LocalAgreement sentence mode and transcription mode context menu.
 - Allowed changing the language selector while recording so future chunks use the updated language.
 - Added top-edge magnetic snapping for the floating strip with pull-down release.
+- Added post-processing actions for MP3 backup export and high-quality transcript creation.
+- Added `*.backup.mp3` and `*.high-quality.txt` output naming for post-recording files.
+- Changed post-processing actions to prompt for a WAV file, so older recordings can be processed.
+- Added an `imageio-ffmpeg` fallback so MP3 export does not require ffmpeg on the system PATH.
+- Renamed post-processing menu actions and added transcript-panel progress feedback.
+- Added language confirmation before high-quality transcript creation and centered the language selector labels.

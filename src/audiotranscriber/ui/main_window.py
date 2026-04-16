@@ -10,13 +10,15 @@ from PySide6.QtGui import QAction, QDesktopServices
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
     QApplication,
+    QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
     QFileDialog,
     QMainWindow,
+    QMessageBox,
     QMenu,
-    QComboBox,
+    QProgressBar,
     QTextEdit,
     QSizePolicy,
     QSpacerItem,
@@ -96,6 +98,16 @@ class RecorderStripWindow(QMainWindow):
         self.language_combo.addItem("AUTO", TranscriptionLanguage.AUTO.value)
         self.language_combo.addItem("NL", TranscriptionLanguage.DUTCH.value)
         self.language_combo.addItem("EN", TranscriptionLanguage.ENGLISH.value)
+        self.language_combo.setEditable(True)
+        self.language_combo.lineEdit().setReadOnly(True)
+        self.language_combo.lineEdit().setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.language_combo.lineEdit().setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        for index in range(self.language_combo.count()):
+            self.language_combo.setItemData(
+                index,
+                Qt.AlignmentFlag.AlignCenter,
+                Qt.ItemDataRole.TextAlignmentRole,
+            )
         self.language_combo.setFixedWidth(64)
         self.stop_button = StripIconButton(IconKind.STOP, self.strip)
         self.pause_button = StripIconButton(IconKind.PAUSE, self.strip)
@@ -139,6 +151,12 @@ class RecorderStripWindow(QMainWindow):
         panel_header.addWidget(self.preview_age)
         panel_header.addItem(QSpacerItem(20, 1, QSizePolicy.Policy.Expanding))
 
+        self.progress_bar = QProgressBar(self.transcript_panel)
+        self.progress_bar.setObjectName("progressBar")
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setFixedHeight(6)
+        self.progress_bar.hide()
+
         self.transcript_text = QTextEdit(self.transcript_panel)
         self.transcript_text.setObjectName("transcriptText")
         self.transcript_text.setReadOnly(True)
@@ -151,6 +169,7 @@ class RecorderStripWindow(QMainWindow):
         )
 
         self.panel_layout.addLayout(panel_header)
+        self.panel_layout.addWidget(self.progress_bar)
         self.panel_layout.addWidget(self.transcript_text)
 
         layout.addWidget(self.strip)
@@ -182,6 +201,7 @@ class RecorderStripWindow(QMainWindow):
             self._animate_panel_height(panel_target)
 
         if state.status == RecorderStatus.RECORDING:
+            self.progress_bar.hide()
             self.preview_status.setText("Opnemen...")
             source = {
                 InputSource.TEST_TONE: "testtoon",
@@ -198,19 +218,26 @@ class RecorderStripWindow(QMainWindow):
             self.preview_age.setText(f"({source}, WAV 16 kHz mono{live_progress})")
         elif state.status == RecorderStatus.PROCESSING:
             age = state.last_update_seconds if state.last_update_seconds is not None else 0
+            self.progress_bar.show()
+            status_label = state.processing_label or "Transcriberen..."
             if state.transcription_total_chunks:
-                progress = (
+                progress = state.processing_progress_text or (
                     f"chunk {state.transcription_current_chunk}/"
                     f"{state.transcription_total_chunks}"
                 )
+                self.progress_bar.setRange(0, state.transcription_total_chunks)
+                self.progress_bar.setValue(state.transcription_current_chunk)
             else:
-                progress = "model laden"
-            self.preview_status.setText("Transcriberen...")
+                progress = state.processing_progress_text or "bezig"
+                self.progress_bar.setRange(0, 0)
+            self.preview_status.setText(status_label)
             self.preview_age.setText(f"({progress}, laatste update: {age}s geleden)")
         elif state.status == RecorderStatus.PAUSED:
+            self.progress_bar.hide()
             self.preview_status.setText("Gepauzeerd")
             self.preview_age.setText("(opname tijdelijk stilgezet)")
         else:
+            self.progress_bar.hide()
             self.preview_status.setText("Klaar")
             self.preview_age.setText("(wacht op opname)")
 
@@ -331,6 +358,26 @@ class RecorderStripWindow(QMainWindow):
 
         menu.addSeparator()
 
+        export_mp3_action = QAction("WAV to MP3 Backup", menu)
+        export_mp3_action.setEnabled(
+            self._controller is not None
+            and self._controller.state.status
+            not in {
+                RecorderStatus.RECORDING,
+                RecorderStatus.PAUSED,
+                RecorderStatus.PROCESSING,
+            }
+        )
+        export_mp3_action.triggered.connect(self._select_wav_for_mp3_backup)
+        menu.addAction(export_mp3_action)
+
+        high_quality_action = QAction("WAV to High Quality Transcript", menu)
+        high_quality_action.setEnabled(export_mp3_action.isEnabled())
+        high_quality_action.triggered.connect(self._select_wav_for_high_quality_transcript)
+        menu.addAction(high_quality_action)
+
+        menu.addSeparator()
+
         close_action = QAction("Close app", menu)
         close_action.triggered.connect(self.close)
         menu.addAction(close_action)
@@ -412,10 +459,21 @@ class RecorderStripWindow(QMainWindow):
                 padding: 4px 8px;
                 font-size: 12px;
                 font-weight: 700;
+                text-align: center;
             }
 
             QComboBox#languageCombo:disabled {
                 color: rgba(247, 248, 248, 0.48);
+            }
+
+            QComboBox#languageCombo QLineEdit {
+                background: transparent;
+                border: none;
+                color: #f7f8f8;
+                selection-background-color: transparent;
+                padding: 0;
+                font-size: 12px;
+                font-weight: 700;
             }
 
             QComboBox#languageCombo::drop-down {
@@ -447,6 +505,17 @@ class RecorderStripWindow(QMainWindow):
                 color: #c8cdd0;
                 font-size: 14px;
                 font-weight: 400;
+            }
+
+            QProgressBar#progressBar {
+                background: rgba(255, 255, 255, 0.08);
+                border: none;
+                border-radius: 3px;
+            }
+
+            QProgressBar#progressBar::chunk {
+                background: #f7c331;
+                border-radius: 3px;
             }
 
             QLabel#transcriptText {
@@ -546,6 +615,36 @@ class RecorderStripWindow(QMainWindow):
         if file_path:
             self._controller.select_dev_sample(Path(file_path))
 
+    def _select_wav_for_mp3_backup(self) -> None:
+        path = self._select_recording_wav("Select WAV for MP3 Backup")
+        if path is not None and self._controller is not None:
+            self._controller.export_mp3_backup_for(path)
+
+    def _select_wav_for_high_quality_transcript(self) -> None:
+        path = self._select_recording_wav("Select WAV for High Quality Transcript")
+        if path is not None and self._controller is not None:
+            language = self._selected_transcription_language()
+            if not self._confirm_high_quality_language(language):
+                return
+            self._controller.set_transcription_language(language)
+            self._controller.create_high_quality_transcript_for(path)
+
+    def _select_recording_wav(self, title: str) -> Path | None:
+        if self._controller is None:
+            return None
+
+        recordings_dir = self._controller.recordings_dir
+        recordings_dir.mkdir(parents=True, exist_ok=True)
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            title,
+            str(recordings_dir.resolve()),
+            "WAV recordings (*.wav)",
+        )
+        if not file_path:
+            return None
+        return Path(file_path)
+
     def _play_dev_sample(self) -> None:
         path = self._dev_sample_path()
         if path is None or not path.exists():
@@ -602,12 +701,33 @@ class RecorderStripWindow(QMainWindow):
         if self._controller is None:
             return
 
+        language = self._selected_transcription_language()
+        self._controller.set_transcription_language(language)
+
+    def _selected_transcription_language(self) -> TranscriptionLanguage:
         value = self.language_combo.currentData()
         try:
-            language = TranscriptionLanguage(value)
+            return TranscriptionLanguage(value)
         except ValueError:
-            language = TranscriptionLanguage.AUTO
-        self._controller.set_transcription_language(language)
+            return TranscriptionLanguage.AUTO
+
+    def _confirm_high_quality_language(self, language: TranscriptionLanguage) -> bool:
+        label = {
+            TranscriptionLanguage.AUTO: "AUTO (automatic detection)",
+            TranscriptionLanguage.DUTCH: "NL (Dutch)",
+            TranscriptionLanguage.ENGLISH: "EN (English)",
+        }[language]
+        result = QMessageBox.question(
+            self,
+            "Confirm transcript language",
+            (
+                "Create a high-quality transcript with this language setting?\n\n"
+                f"Language: {label}"
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        return result == QMessageBox.StandardButton.Yes
 
     def _set_transcript_text(self, text: str) -> None:
         if self.transcript_text.toPlainText() == text:

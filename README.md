@@ -28,6 +28,12 @@ chunked transcription:
 - Main strip language selector: `AUTO`, `NL`, or `EN`.
 - Language can be changed during recording; new chunks use the updated selection.
 - Stop only drains/merges queued live chunks instead of starting a second transcription pass.
+- Post-processing actions for any saved WAV recording:
+  - `WAV to MP3 Backup` lets you pick a WAV and creates `*.backup.mp3`.
+  - `WAV to High Quality Transcript` lets you pick a WAV and creates
+    `*.high-quality.txt` using the high-quality preset.
+  - High-quality transcription confirms the selected language before starting.
+  - The transcript panel shows a progress bar while post-processing runs.
 
 Phase 2 raw audio format:
 
@@ -48,6 +54,13 @@ device=cpu
 compute_type=int8
 live_chunk_seconds=4
 language=auto | nl | en
+```
+
+Post-processing presets:
+
+```text
+mp3_backup=ffmpeg via system PATH or bundled imageio-ffmpeg, libmp3lame, 96k
+high_quality_transcript=faster-whisper small, cpu, int8, 15s chunks
 ```
 
 ## Run
@@ -98,4 +111,5 @@ python -m audiotranscriber.main
 Phase 2 now has raw WAV recording, pause/stop behavior, timestamped output paths, test tone input, microphone input, and a real audio level indicator.
 Phase 3 adds chunking plus faster-whisper background transcription.
 Phase 3.5 now uses one chunk-based live transcription pass written directly to `.txt`.
+Post-processing can create smaller MP3 backups and high-quality transcript files.
 Phase 4 should finalize MP3 export, error handling, settings, and packaging preparation.

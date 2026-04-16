@@ -9,6 +9,12 @@ from threading import Event, Thread
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
+from audiotranscriber.pipelines.post_processing import (
+    backup_mp3_path_for,
+    export_mp3_backup,
+    high_quality_transcript_path_for,
+    high_quality_transcription_config,
+)
 from audiotranscriber.pipelines.recording import LIVE_CHUNK_SECONDS, RecordingPipeline
 from audiotranscriber.pipelines.transcription import TranscriptionPipeline
 from audiotranscriber.state import (
@@ -29,6 +35,9 @@ class AppController(QObject):
     transcription_finished = Signal(str)
     transcription_failed = Signal(str)
     transcription_cancelled = Signal(str)
+    post_processing_progress = Signal(int, int, str)
+    post_processing_finished = Signal(str, str)
+    post_processing_failed = Signal(str)
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -54,6 +63,9 @@ class AppController(QObject):
         self.transcription_finished.connect(self._handle_transcription_finished)
         self.transcription_failed.connect(self._handle_transcription_failed)
         self.transcription_cancelled.connect(self._handle_transcription_cancelled)
+        self.post_processing_progress.connect(self._handle_post_processing_progress)
+        self.post_processing_finished.connect(self._handle_post_processing_finished)
+        self.post_processing_failed.connect(self._handle_post_processing_failed)
 
         self._elapsed_timer = QTimer(self)
         self._elapsed_timer.setInterval(1000)
@@ -171,7 +183,11 @@ class AppController(QObject):
         if self._state.status == RecorderStatus.PAUSED:
             self._recorder.resume()
             self._elapsed_timer.start()
-            self._set_state(status=RecorderStatus.RECORDING, error_message=None)
+            self._set_state(
+                status=RecorderStatus.RECORDING,
+                error_message=None,
+                processing_label=None,
+            )
             return
 
         try:
@@ -215,6 +231,8 @@ class AppController(QObject):
             ),
             transcription_current_chunk=0,
             transcription_total_chunks=0,
+            processing_label=None,
+            processing_progress_text=None,
             error_message=None,
             preview_text=f"Opname loopt. Ruwe audio wordt opgeslagen als:\n{output_path}",
         )
@@ -253,6 +271,8 @@ class AppController(QObject):
             transcript_open=True,
             last_update_seconds=0,
             audio_level=0.0,
+            processing_label="Opname afronden...",
+            processing_progress_text=None,
             output_audio_path=str(output_path) if output_path is not None else None,
             preview_text=preview,
         )
@@ -291,6 +311,8 @@ class AppController(QObject):
             transcript_output_path=str(transcript_path),
             transcription_current_chunk=0,
             transcription_total_chunks=0,
+            processing_label="Transcriberen...",
+            processing_progress_text=None,
             preview_text=(
                 "Transcriptie voorbereiden...\n"
                 f"Model: {self._transcriber.config.model_name}, "
@@ -316,13 +338,118 @@ class AppController(QObject):
         )
         self._transcription_thread.start()
 
+    def export_mp3_backup_for(self, audio_path: Path) -> None:
+        if self._state.status in {
+            RecorderStatus.RECORDING,
+            RecorderStatus.PAUSED,
+            RecorderStatus.PROCESSING,
+        }:
+            return
+
+        target = audio_path.resolve()
+        if not target.exists():
+            self._set_state(
+                error_message="Geen opname beschikbaar voor MP3 export.",
+                transcript_open=True,
+                preview_text=f"WAV bestand niet gevonden:\n{target}",
+            )
+            return
+
+        output_path = backup_mp3_path_for(target)
+        self._set_state(
+            status=RecorderStatus.PROCESSING,
+            transcript_open=True,
+            last_update_seconds=0,
+            error_message=None,
+            output_audio_path=str(target),
+            transcription_current_chunk=0,
+            transcription_total_chunks=0,
+            processing_label="MP3 exporteren...",
+            processing_progress_text="0%",
+            preview_text=(
+                "MP3 backup maken...\n\n"
+                f"Bron:\n{target}\n\n"
+                f"Doel:\n{output_path}"
+            ),
+        )
+        self._preview_age_timer.start()
+        print(f"Starting MP3 backup export: {target} -> {output_path}", flush=True)
+
+        self._transcription_thread = Thread(
+            target=self._run_mp3_export,
+            args=(target,),
+            name="PostProcessMp3Export",
+            daemon=True,
+        )
+        self._transcription_thread.start()
+
+    def create_high_quality_transcript_for(self, audio_path: Path) -> None:
+        if self._state.status in {
+            RecorderStatus.RECORDING,
+            RecorderStatus.PAUSED,
+            RecorderStatus.PROCESSING,
+        }:
+            return
+
+        target = audio_path.resolve()
+        if not target.exists():
+            self._set_state(
+                error_message="Geen opname beschikbaar voor high-quality transcript.",
+                transcript_open=True,
+                preview_text=f"WAV bestand niet gevonden:\n{target}",
+            )
+            return
+
+        output_path = high_quality_transcript_path_for(target)
+        self._transcription_cancel.clear()
+        self._set_state(
+            status=RecorderStatus.PROCESSING,
+            transcript_open=True,
+            last_update_seconds=0,
+            error_message=None,
+            output_audio_path=str(target),
+            transcript_output_path=str(output_path),
+            transcription_current_chunk=0,
+            transcription_total_chunks=0,
+            processing_label="High quality transcript...",
+            processing_progress_text=None,
+            preview_text=(
+                "High-quality transcript voorbereiden...\n\n"
+                "Preset: high-quality\n"
+                f"Bron:\n{target}\n\n"
+                f"Doel:\n{output_path}"
+            ),
+        )
+        self._preview_age_timer.start()
+        print(
+            "Starting high-quality transcript: "
+            f"{target} "
+            "model=small device=cpu compute_type=int8 "
+            f"language={self._transcriber.config.language or 'auto'}",
+            flush=True,
+        )
+
+        self._transcription_thread = Thread(
+            target=self._run_high_quality_transcription,
+            args=(target,),
+            name="PostProcessHighQualityTranscript",
+            daemon=True,
+        )
+        self._transcription_thread.start()
+
     def cancel_transcription(self) -> None:
         standard_running = self._transcription_thread and self._transcription_thread.is_alive()
         live_running = (
             self._live_transcription_thread and self._live_transcription_thread.is_alive()
         )
         if not (standard_running or live_running):
-            self._set_state(status=RecorderStatus.IDLE, last_update_seconds=None, audio_level=0.0)
+            self._set_state(
+                status=RecorderStatus.IDLE,
+                last_update_seconds=None,
+                audio_level=0.0,
+                processing_label=None,
+                processing_progress_text=None,
+            )
             return
 
         self._transcription_cancel.set()
@@ -331,6 +458,8 @@ class AppController(QObject):
         self._set_state(
             status=RecorderStatus.PROCESSING,
             transcript_open=True,
+            processing_label="Transcriptie stoppen...",
+            processing_progress_text=None,
             preview_text=(
                 f"{self._state.preview_text}\n\nTranscriptie stoppen... "
                 "De huidige chunk wordt nog afgerond."
@@ -339,7 +468,13 @@ class AppController(QObject):
 
     def _finish_processing(self) -> None:
         self._preview_age_timer.stop()
-        self._set_state(status=RecorderStatus.IDLE, last_update_seconds=None, audio_level=0.0)
+        self._set_state(
+            status=RecorderStatus.IDLE,
+            last_update_seconds=None,
+            audio_level=0.0,
+            processing_label=None,
+            processing_progress_text=None,
+        )
 
     def _tick_elapsed(self) -> None:
         self._set_state(elapsed_seconds=self._state.elapsed_seconds + 1)
@@ -380,6 +515,49 @@ class AppController(QObject):
             return
 
         self.transcription_finished.emit(str(transcript_path))
+
+    def _run_mp3_export(self, audio_path: Path) -> None:
+        try:
+            output_path = export_mp3_backup(
+                audio_path,
+                on_progress=lambda current, total: self.post_processing_progress.emit(
+                    current,
+                    total,
+                    f"{current}%",
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001
+            self.post_processing_failed.emit(str(exc))
+            return
+
+        self.post_processing_finished.emit("MP3 backup opgeslagen", str(output_path))
+
+    def _run_high_quality_transcription(self, audio_path: Path) -> None:
+        transcript_path = high_quality_transcript_path_for(audio_path)
+        transcriber = TranscriptionPipeline(
+            high_quality_transcription_config(self._transcriber.config.language)
+        )
+        try:
+            result_path = transcriber.transcribe(
+                audio_path,
+                on_progress=lambda current, total, text, path: self.transcription_progress.emit(
+                    current,
+                    total,
+                    text,
+                    str(path),
+                ),
+                cancel_event=self._transcription_cancel,
+                transcript_path=transcript_path,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self.transcription_failed.emit(str(exc))
+            return
+
+        if self._transcription_cancel.is_set():
+            self.transcription_cancelled.emit(str(result_path))
+            return
+
+        self.transcription_finished.emit(str(result_path))
 
     def _start_live_transcription(self, audio_path: Path) -> None:
         self._transcription_cancel.clear()
@@ -589,6 +767,8 @@ class AppController(QObject):
             transcript_output_path=transcript_path,
             transcription_current_chunk=0,
             transcription_total_chunks=0,
+            processing_label=None,
+            processing_progress_text=None,
             preview_text=text,
         )
 
@@ -601,6 +781,8 @@ class AppController(QObject):
             audio_level=0.0,
             transcription_current_chunk=0,
             transcription_total_chunks=0,
+            processing_label=None,
+            processing_progress_text=None,
             error_message=error,
             preview_text=f"Transcriptie mislukt:\n{error}",
             transcript_open=True,
@@ -616,10 +798,57 @@ class AppController(QObject):
             transcript_output_path=transcript_path,
             transcription_current_chunk=0,
             transcription_total_chunks=0,
+            processing_label=None,
+            processing_progress_text=None,
             preview_text=(
                 f"{self._state.preview_text}\n\nTranscriptie gestopt. "
                 f"Gedeeltelijke tekst opgeslagen:\n{transcript_path}"
             ),
+            transcript_open=True,
+        )
+
+    def _handle_post_processing_progress(
+        self,
+        current: int,
+        total: int,
+        progress_text: str,
+    ) -> None:
+        self._set_state(
+            last_update_seconds=0,
+            transcription_current_chunk=current,
+            transcription_total_chunks=total,
+            processing_progress_text=progress_text,
+        )
+
+    def _handle_post_processing_finished(self, label: str, output_path: str) -> None:
+        self._preview_age_timer.stop()
+        print(f"{label}: {output_path}", flush=True)
+        self._set_state(
+            status=RecorderStatus.IDLE,
+            last_update_seconds=None,
+            audio_level=0.0,
+            transcription_current_chunk=0,
+            transcription_total_chunks=0,
+            processing_label=None,
+            processing_progress_text=None,
+            error_message=None,
+            preview_text=f"{label}:\n{output_path}",
+            transcript_open=True,
+        )
+
+    def _handle_post_processing_failed(self, error: str) -> None:
+        self._preview_age_timer.stop()
+        print(f"Post-processing failed: {error}", flush=True)
+        self._set_state(
+            status=RecorderStatus.IDLE,
+            last_update_seconds=None,
+            audio_level=0.0,
+            transcription_current_chunk=0,
+            transcription_total_chunks=0,
+            processing_label=None,
+            processing_progress_text=None,
+            error_message=error,
+            preview_text=f"Post-processing mislukt:\n{error}",
             transcript_open=True,
         )
 

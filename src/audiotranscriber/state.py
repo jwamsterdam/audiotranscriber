@@ -39,6 +39,8 @@ class RecorderState:
     selected_dev_sample_path: str | None = None
     transcription_current_chunk: int = 0
     transcription_total_chunks: int = 0
+    processing_label: str | None = None
+    processing_progress_text: str | None = None
     error_message: str | None = None
     preview_text: str = (
         "Nog geen opname opgeslagen. Gebruik voor testen zonder microfoon de "

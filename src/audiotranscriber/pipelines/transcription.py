@@ -60,12 +60,13 @@ class TranscriptionPipeline:
         audio_path: Path,
         on_progress: ProgressCallback,
         cancel_event: Event,
+        transcript_path: Path | None = None,
     ) -> Path:
         audio_path = audio_path.resolve()
         if not audio_path.exists():
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
 
-        transcript_path = self.transcript_path_for(audio_path)
+        transcript_path = transcript_path or self.transcript_path_for(audio_path)
         transcript_path.parent.mkdir(parents=True, exist_ok=True)
 
         model = self._load_model()

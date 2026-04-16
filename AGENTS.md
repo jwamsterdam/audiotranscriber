@@ -56,6 +56,12 @@ Phase 3:
 - After stop, queued live chunks are drained and saved. Do not start a second transcription pass
   for the normal recording flow.
 - UI transcript updates preserve scroll position unless the user is already at the bottom.
+- Post-processing is separate from live recording and starts by selecting a WAV file.
+- MP3 backup uses `*.backup.mp3`.
+- MP3 backup resolves ffmpeg from the system PATH first and then from `imageio-ffmpeg`,
+  which is the packaging-friendly fallback.
+- High-quality transcript uses the user-facing `*.high-quality.txt` filename and internally
+  maps to faster-whisper `small`, `cpu`, `int8`, 15-second chunks.
 
 Phase 4:
 
