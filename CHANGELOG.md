@@ -79,3 +79,6 @@ All notable changes to AudioTranscriber will be documented in this file.
 - Added language confirmation before high-quality transcript creation and centered the language selector labels.
 - Replaced the language combo with a compact centered menu button and made transcript unfold immediate to avoid stutter.
 - Removed direct open-last-recording/open-transcript menu actions and made microphone the default input.
+- Added dev/prod runtime profiles, production-safe recording/model paths, and a first Windows PyInstaller build script.
+- Added a production-focused context menu profile with microphone-only input and hidden dev sample/test tone actions.
+- Added a Windows Inno Setup installer template and packaging script.

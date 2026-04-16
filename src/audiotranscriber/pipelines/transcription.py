@@ -29,6 +29,7 @@ class TranscriptionConfig:
     chunk_seconds: int = DEFAULT_CHUNK_SECONDS
     overlap_seconds: int = DEFAULT_OVERLAP_SECONDS
     language: str | None = DEFAULT_LANGUAGE
+    model_cache_dir: Path | None = None
 
 
 class TranscriptionPipeline:
@@ -50,6 +51,7 @@ class TranscriptionPipeline:
             chunk_seconds=self._config.chunk_seconds,
             overlap_seconds=self._config.overlap_seconds,
             language=language,
+            model_cache_dir=self._config.model_cache_dir,
         )
 
     def transcript_path_for(self, audio_path: Path) -> Path:
@@ -130,6 +132,11 @@ class TranscriptionPipeline:
                 self._config.model_name,
                 device=self._config.device,
                 compute_type=self._config.compute_type,
+                download_root=(
+                    str(self._config.model_cache_dir)
+                    if self._config.model_cache_dir is not None
+                    else None
+                ),
             )
         return self._model
 

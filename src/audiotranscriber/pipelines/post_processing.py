@@ -28,13 +28,17 @@ def high_quality_transcript_path_for(audio_path: Path) -> Path:
     return audio_path.with_name(f"{audio_path.stem}.high-quality.txt")
 
 
-def high_quality_transcription_config(language: str | None) -> TranscriptionConfig:
+def high_quality_transcription_config(
+    language: str | None,
+    model_cache_dir: Path | None = None,
+) -> TranscriptionConfig:
     return TranscriptionConfig(
         model_name=HIGH_QUALITY_MODEL_NAME,
         device=DEFAULT_DEVICE,
         compute_type=DEFAULT_COMPUTE_TYPE,
         chunk_seconds=HIGH_QUALITY_CHUNK_SECONDS,
         language=language,
+        model_cache_dir=model_cache_dir,
     )
 
 

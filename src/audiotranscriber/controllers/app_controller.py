@@ -9,6 +9,7 @@ from threading import Event, Thread
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
+from audiotranscriber.app_config import AppConfig
 from audiotranscriber.pipelines.post_processing import (
     backup_mp3_path_for,
     export_mp3_backup,
@@ -16,7 +17,7 @@ from audiotranscriber.pipelines.post_processing import (
     high_quality_transcription_config,
 )
 from audiotranscriber.pipelines.recording import LIVE_CHUNK_SECONDS, RecordingPipeline
-from audiotranscriber.pipelines.transcription import TranscriptionPipeline
+from audiotranscriber.pipelines.transcription import TranscriptionConfig, TranscriptionPipeline
 from audiotranscriber.state import (
     InputSource,
     RecorderState,
@@ -39,15 +40,18 @@ class AppController(QObject):
     post_processing_finished = Signal(str, str)
     post_processing_failed = Signal(str)
 
-    def __init__(self, parent: QObject | None = None) -> None:
+    def __init__(self, config: AppConfig, parent: QObject | None = None) -> None:
         super().__init__(parent)
-        self._state = RecorderState()
+        self._config = config
+        self._state = RecorderState(input_source=config.default_input_source)
         self._recorder = RecordingPipeline(
-            Path.cwd() / "recordings",
+            config.recordings_dir,
             self.level_detected.emit,
             self._recording_chunk_from_thread,
         )
-        self._transcriber = TranscriptionPipeline()
+        self._transcriber = TranscriptionPipeline(
+            TranscriptionConfig(model_cache_dir=config.model_cache_dir)
+        )
         self._transcription_cancel = Event()
         self._transcription_thread: Thread | None = None
         self._live_chunk_queue: Queue[tuple[int, bytes] | None] = Queue()
@@ -99,6 +103,9 @@ class AppController(QObject):
         self._set_state(transcript_open=not self._state.transcript_open)
 
     def set_input_source(self, source: InputSource) -> None:
+        if not self._config.show_input_selector and source != InputSource.MICROPHONE:
+            return
+
         if self._state.status in {RecorderStatus.RECORDING, RecorderStatus.PAUSED}:
             return
 
@@ -315,6 +322,7 @@ class AppController(QObject):
             processing_progress_text=None,
             preview_text=(
                 "Transcriptie voorbereiden...\n"
+                "Model wordt indien nodig eenmalig gedownload.\n"
                 f"Model: {self._transcriber.config.model_name}, "
                 f"{self._transcriber.config.device}, {self._transcriber.config.compute_type}"
             ),
@@ -416,6 +424,7 @@ class AppController(QObject):
             preview_text=(
                 "High-quality transcript voorbereiden...\n\n"
                 "Preset: high-quality\n"
+                "Model wordt indien nodig eenmalig gedownload.\n"
                 f"Bron:\n{target}\n\n"
                 f"Doel:\n{output_path}"
             ),
@@ -535,7 +544,10 @@ class AppController(QObject):
     def _run_high_quality_transcription(self, audio_path: Path) -> None:
         transcript_path = high_quality_transcript_path_for(audio_path)
         transcriber = TranscriptionPipeline(
-            high_quality_transcription_config(self._transcriber.config.language)
+            high_quality_transcription_config(
+                self._transcriber.config.language,
+                self._config.model_cache_dir,
+            )
         )
         try:
             result_path = transcriber.transcribe(

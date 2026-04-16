@@ -12,11 +12,13 @@ chunked transcription:
 - Idle, recording, paused, and processing states.
 - Green idle, blinking red recording, yellow processing/paused indicators.
 - Timer and lightweight waveform preview.
-- Timestamped raw WAV recording to `recordings/`.
+- Timestamped raw WAV recording. Dev uses `recordings/`; production uses
+  `Documents/AudioTranscriber/Recordings`.
 - Microphone input is the default input source.
-- Test tone input for machines without a microphone.
+- Test tone input for machines without a microphone in the development profile.
 - Right-click action to open the recordings folder.
-- Dev sample selection from ignored `dev_samples/` for Phase 3 transcription work.
+- Dev sample selection from ignored `dev_samples/` for Phase 3 transcription work in
+  the development profile.
 - Chunked background transcription with `faster-whisper` defaults: `base`, `cpu`, `int8`.
 - Incremental `.txt` transcript saving next to the recorded audio source.
 - Stop button cancels active transcription after the current chunk completes.
@@ -34,6 +36,8 @@ chunked transcription:
     `*.high-quality.txt` using the high-quality preset.
   - High-quality transcription confirms the selected language before starting.
   - The transcript panel shows a progress bar while post-processing runs.
+- Production profile keeps the context menu focused on microphone recording,
+  recordings folder, post-processing, update check, and close.
 
 Phase 2 raw audio format:
 
@@ -64,6 +68,30 @@ mp3_backup=ffmpeg via system PATH or bundled imageio-ffmpeg, libmp3lame, 96k
 high_quality_transcript=faster-whisper small, cpu, int8, 15s chunks
 ```
 
+Build/runtime profiles:
+
+```text
+AUDIOTRANSCRIBER_PROFILE=dev
+  project recordings folder
+  input selector, test tone, and dev sample menu actions
+  model cache in .models/
+
+AUDIOTRANSCRIBER_PROFILE=prod
+  Documents/AudioTranscriber/Recordings
+  microphone-only production menu
+  model cache in the OS app data folder
+  models download on first use
+```
+
+Optional update URL:
+
+```text
+AUDIOTRANSCRIBER_UPDATE_URL=https://your-release-page
+```
+
+If no update URL is configured, the production menu still shows `Check for updates`,
+but it displays a friendly "not configured yet" message.
+
 ## Run
 
 On Windows, the easiest review command is:
@@ -79,6 +107,7 @@ If PowerShell script execution gets in the way, use:
 ```
 
 Both commands create `.venv` if needed, install the local package, and start the app.
+They explicitly run the `dev` profile.
 
 For UI iteration with automatic restart after Python file changes:
 
@@ -97,6 +126,24 @@ python -m venv .venv
 pip install -e .
 python -m audiotranscriber.main
 ```
+
+Production folder build on Windows:
+
+```powershell
+.\build-windows.ps1
+```
+
+This creates a PyInstaller folder build at `dist/AudioTranscriber/AudioTranscriber.exe`.
+Packaged/frozen builds default to the `prod` profile.
+
+Windows installer build:
+
+```powershell
+.\package-windows.ps1
+```
+
+This runs the production folder build and then uses Inno Setup 6, when installed, to
+create `installer/AudioTranscriberSetup.exe`.
 
 On macOS/Linux:
 

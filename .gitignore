@@ -5,6 +5,7 @@ __pycache__/
 
 # Local recordings
 recordings/
+.models/
 
 # Local development audio samples
 dev_samples/
@@ -17,6 +18,7 @@ dev_samples/
 build/
 develop-eggs/
 dist/
+installer/
 downloads/
 eggs/
 .eggs/
@@ -37,6 +39,7 @@ MANIFEST
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
+!audiotranscriber.spec
 
 # Installer logs
 pip-log.txt

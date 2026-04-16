@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from audiotranscriber.app_config import AppConfig
 from audiotranscriber.controllers.app_controller import AppController
 from audiotranscriber.state import (
     InputSource,
@@ -51,8 +52,9 @@ UNSNAP_PULL_DISTANCE = 34
 class RecorderStripWindow(QMainWindow):
     """Compact always-on-top friendly window for Phase 1."""
 
-    def __init__(self) -> None:
+    def __init__(self, config: AppConfig) -> None:
         super().__init__()
+        self._config = config
         self._controller: AppController | None = None
         self._drag_position = None
         self._snapped_to_top = False
@@ -290,58 +292,11 @@ class RecorderStripWindow(QMainWindow):
         menu = QMenu(self)
         menu.setObjectName("contextMenu")
 
-        test_tone_action = QAction("Use test tone input", menu)
-        test_tone_action.setCheckable(True)
-        test_tone_action.setChecked(
-            self._controller is not None
-            and self._controller.state.input_source == InputSource.TEST_TONE
-        )
-        test_tone_action.triggered.connect(
-            lambda: self._controller and self._controller.set_input_source(InputSource.TEST_TONE)
-        )
-        menu.addAction(test_tone_action)
+        if self._config.show_input_selector:
+            self._add_input_source_actions(menu)
 
-        microphone_action = QAction("Use microphone input", menu)
-        microphone_action.setCheckable(True)
-        microphone_action.setChecked(
-            self._controller is not None
-            and self._controller.state.input_source == InputSource.MICROPHONE
-        )
-        microphone_action.triggered.connect(
-            lambda: self._controller and self._controller.set_input_source(InputSource.MICROPHONE)
-        )
-        menu.addAction(microphone_action)
-
-        dev_sample_input_action = QAction("Use dev sample input", menu)
-        dev_sample_input_action.setCheckable(True)
-        dev_sample_input_action.setChecked(
-            self._controller is not None
-            and self._controller.state.input_source == InputSource.DEV_SAMPLE
-        )
-        dev_sample_input_action.setEnabled(self._controller is not None)
-        dev_sample_input_action.triggered.connect(
-            lambda: self._controller and self._controller.set_input_source(InputSource.DEV_SAMPLE)
-        )
-        menu.addAction(dev_sample_input_action)
-        menu.addSeparator()
-
-        select_sample_action = QAction("Select dev sample", menu)
-        select_sample_action.setEnabled(self._controller is not None)
-        select_sample_action.triggered.connect(self._select_dev_sample)
-        menu.addAction(select_sample_action)
-
-        play_sample_action = QAction("Play dev sample", menu)
-        play_sample_action.setEnabled(self._dev_sample_path() is not None)
-        play_sample_action.triggered.connect(self._play_dev_sample)
-        menu.addAction(play_sample_action)
-
-        stop_sample_action = QAction("Stop dev sample", menu)
-        stop_sample_action.setEnabled(
-            self._media_player.playbackState() != QMediaPlayer.PlaybackState.StoppedState
-        )
-        stop_sample_action.triggered.connect(self._media_player.stop)
-        menu.addAction(stop_sample_action)
-        menu.addSeparator()
+        if self._config.show_dev_samples:
+            self._add_dev_sample_actions(menu)
 
         open_folder_action = QAction("Open recordings folder", menu)
         open_folder_action.triggered.connect(self._open_recordings_folder)
@@ -369,11 +324,77 @@ class RecorderStripWindow(QMainWindow):
 
         menu.addSeparator()
 
+        if self._config.enable_update_check:
+            update_action = QAction("Check for updates", menu)
+            update_action.triggered.connect(self._check_for_updates)
+            menu.addAction(update_action)
+            menu.addSeparator()
+
         close_action = QAction("Close app", menu)
         close_action.triggered.connect(self.close)
         menu.addAction(close_action)
 
         menu.exec(event.globalPos())
+
+    def _add_input_source_actions(self, menu: QMenu) -> None:
+        if self._config.show_test_tone:
+            test_tone_action = QAction("Use test tone input", menu)
+            test_tone_action.setCheckable(True)
+            test_tone_action.setChecked(
+                self._controller is not None
+                and self._controller.state.input_source == InputSource.TEST_TONE
+            )
+            test_tone_action.triggered.connect(
+                lambda: self._controller
+                and self._controller.set_input_source(InputSource.TEST_TONE)
+            )
+            menu.addAction(test_tone_action)
+
+        microphone_action = QAction("Use microphone input", menu)
+        microphone_action.setCheckable(True)
+        microphone_action.setChecked(
+            self._controller is not None
+            and self._controller.state.input_source == InputSource.MICROPHONE
+        )
+        microphone_action.triggered.connect(
+            lambda: self._controller and self._controller.set_input_source(InputSource.MICROPHONE)
+        )
+        menu.addAction(microphone_action)
+
+        if self._config.show_dev_samples:
+            dev_sample_input_action = QAction("Use dev sample input", menu)
+            dev_sample_input_action.setCheckable(True)
+            dev_sample_input_action.setChecked(
+                self._controller is not None
+                and self._controller.state.input_source == InputSource.DEV_SAMPLE
+            )
+            dev_sample_input_action.setEnabled(self._controller is not None)
+            dev_sample_input_action.triggered.connect(
+                lambda: self._controller
+                and self._controller.set_input_source(InputSource.DEV_SAMPLE)
+            )
+            menu.addAction(dev_sample_input_action)
+
+        menu.addSeparator()
+
+    def _add_dev_sample_actions(self, menu: QMenu) -> None:
+        select_sample_action = QAction("Select dev sample", menu)
+        select_sample_action.setEnabled(self._controller is not None)
+        select_sample_action.triggered.connect(self._select_dev_sample)
+        menu.addAction(select_sample_action)
+
+        play_sample_action = QAction("Play dev sample", menu)
+        play_sample_action.setEnabled(self._dev_sample_path() is not None)
+        play_sample_action.triggered.connect(self._play_dev_sample)
+        menu.addAction(play_sample_action)
+
+        stop_sample_action = QAction("Stop dev sample", menu)
+        stop_sample_action.setEnabled(
+            self._media_player.playbackState() != QMediaPlayer.PlaybackState.StoppedState
+        )
+        stop_sample_action.triggered.connect(self._media_player.stop)
+        menu.addAction(stop_sample_action)
+        menu.addSeparator()
 
     def keyPressEvent(self, event) -> None:  # noqa: N802
         if event.key() == Qt.Key.Key_Escape:
@@ -574,6 +595,20 @@ class RecorderStripWindow(QMainWindow):
         path = self._controller.recordings_dir
         path.mkdir(parents=True, exist_ok=True)
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.resolve())))
+
+    def _check_for_updates(self) -> None:
+        if self._config.update_url:
+            QDesktopServices.openUrl(QUrl(self._config.update_url))
+            return
+
+        QMessageBox.information(
+            self,
+            "Check for updates",
+            (
+                "Update checking is enabled, but no release URL is configured yet.\n\n"
+                "When the production release location is known, add it to the app config."
+            ),
+        )
 
     def _select_dev_sample(self) -> None:
         if self._controller is None:

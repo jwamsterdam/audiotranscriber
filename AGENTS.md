@@ -78,6 +78,21 @@ Use the one-command Windows runner when possible:
 .\run.ps1
 ```
 
+`run.ps1`, `dev.ps1`, and `run.bat` set `AUDIOTRANSCRIBER_PROFILE=dev`.
+Frozen/packaged builds default to `prod` unless the environment variable overrides it.
+Profile behavior lives in `src/audiotranscriber/app_config.py`.
+
+Dev profile:
+- Uses project-local `recordings/`.
+- Keeps input selector, test tone, and dev sample menu actions.
+- Uses `.models/` for the faster-whisper cache.
+
+Prod profile:
+- Uses microphone input only.
+- Hides dev sample/test input menu actions.
+- Stores recordings in `Documents/AudioTranscriber/Recordings`.
+- Stores models in the OS app data folder and downloads them on first use.
+
 Use restart-on-save during UI iteration:
 
 ```powershell

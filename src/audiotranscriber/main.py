@@ -6,6 +6,7 @@ import sys
 
 from PySide6.QtWidgets import QApplication
 
+from audiotranscriber.app_config import load_app_config
 from audiotranscriber.controllers.app_controller import AppController
 from audiotranscriber.ui.main_window import RecorderStripWindow
 
@@ -15,8 +16,9 @@ def main() -> int:
     app.setApplicationName("AudioTranscriber")
     app.setOrganizationName("LocalTools")
 
-    window = RecorderStripWindow()
-    controller = AppController(window)
+    config = load_app_config()
+    window = RecorderStripWindow(config)
+    controller = AppController(config, window)
     window.bind_controller(controller)
     window.show()
 
@@ -25,4 +27,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

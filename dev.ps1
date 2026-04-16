@@ -2,6 +2,7 @@ $ErrorActionPreference = "Stop"
 
 $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $VenvPython = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
+$env:AUDIOTRANSCRIBER_PROFILE = "dev"
 
 if (-not (Test-Path $VenvPython)) {
     Write-Host "Creating virtual environment..."
@@ -13,4 +14,3 @@ Write-Host "Installing/updating local package..."
 
 Write-Host "Starting AudioTranscriber dev watcher..."
 & $VenvPython -B (Join-Path $ProjectRoot "tools\dev_reload.py")
-
