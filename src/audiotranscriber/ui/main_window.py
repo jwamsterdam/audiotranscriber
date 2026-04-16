@@ -347,21 +347,6 @@ class RecorderStripWindow(QMainWindow):
         open_folder_action.triggered.connect(self._open_recordings_folder)
         menu.addAction(open_folder_action)
 
-        open_last_action = QAction("Open last recording", menu)
-        open_last_action.setEnabled(
-            self._controller is not None and self._controller.state.output_audio_path is not None
-        )
-        open_last_action.triggered.connect(self._open_last_recording)
-        menu.addAction(open_last_action)
-
-        open_transcript_action = QAction("Open transcript TXT", menu)
-        open_transcript_action.setEnabled(
-            self._controller is not None
-            and self._controller.state.transcript_output_path is not None
-        )
-        open_transcript_action.triggered.connect(self._open_transcript)
-        menu.addAction(open_transcript_action)
-
         menu.addSeparator()
 
         export_mp3_action = QAction("WAV to MP3 Backup", menu)
@@ -589,20 +574,6 @@ class RecorderStripWindow(QMainWindow):
         path = self._controller.recordings_dir
         path.mkdir(parents=True, exist_ok=True)
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.resolve())))
-
-    def _open_last_recording(self) -> None:
-        if self._controller is None or self._controller.state.output_audio_path is None:
-            return
-        path = Path(self._controller.state.output_audio_path)
-        if path.exists():
-            QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.resolve())))
-
-    def _open_transcript(self) -> None:
-        if self._controller is None or self._controller.state.transcript_output_path is None:
-            return
-        path = Path(self._controller.state.transcript_output_path)
-        if path.exists():
-            QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.resolve())))
 
     def _select_dev_sample(self) -> None:
         if self._controller is None:

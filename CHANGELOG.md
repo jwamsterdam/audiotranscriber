@@ -78,3 +78,4 @@ All notable changes to AudioTranscriber will be documented in this file.
 - Renamed post-processing menu actions and added transcript-panel progress feedback.
 - Added language confirmation before high-quality transcript creation and centered the language selector labels.
 - Replaced the language combo with a compact centered menu button and made transcript unfold immediate to avoid stutter.
+- Removed direct open-last-recording/open-transcript menu actions and made microphone the default input.

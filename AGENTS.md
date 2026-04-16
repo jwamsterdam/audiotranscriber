@@ -37,6 +37,7 @@ Keep the UI, recording pipeline, transcription pipeline, and controller responsi
 Phase 2:
 
 - Current raw format is WAV, 16 kHz, mono, 16-bit PCM.
+- Microphone input is the default.
 - Test tone input is available from the right-click menu.
 - Microphone input is available from the right-click menu where a device exists.
 - Recordings are saved in `recordings/` and should not be committed.

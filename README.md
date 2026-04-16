@@ -13,9 +13,9 @@ chunked transcription:
 - Green idle, blinking red recording, yellow processing/paused indicators.
 - Timer and lightweight waveform preview.
 - Timestamped raw WAV recording to `recordings/`.
+- Microphone input is the default input source.
 - Test tone input for machines without a microphone.
-- Microphone input option for machines with a local input device.
-- Right-click actions to open the recordings folder, last recording, or transcript.
+- Right-click action to open the recordings folder.
 - Dev sample selection from ignored `dev_samples/` for Phase 3 transcription work.
 - Chunked background transcription with `faster-whisper` defaults: `base`, `cpu`, `int8`.
 - Incremental `.txt` transcript saving next to the recorded audio source.
@@ -39,6 +39,7 @@ Phase 2 raw audio format:
 
 ```text
 WAV, 16 kHz, mono, 16-bit PCM
+Default input: microphone
 ```
 
 Development audio samples can be placed in `dev_samples/`. That folder is ignored by git.

@@ -31,7 +31,7 @@ class RecorderState:
     elapsed_seconds: int = 0
     transcript_open: bool = False
     last_update_seconds: int | None = None
-    input_source: InputSource = InputSource.TEST_TONE
+    input_source: InputSource = InputSource.MICROPHONE
     transcription_language: TranscriptionLanguage = TranscriptionLanguage.AUTO
     audio_level: float = 0.0
     output_audio_path: str | None = None
@@ -43,6 +43,6 @@ class RecorderState:
     processing_progress_text: str | None = None
     error_message: str | None = None
     preview_text: str = (
-        "Nog geen opname opgeslagen. Gebruik voor testen zonder microfoon de "
-        "ingebouwde testtoon via de rechtermuisknop."
+        "Nog geen opname opgeslagen. Microfoon staat standaard klaar. Gebruik voor "
+        "testen zonder microfoon de ingebouwde testtoon via de rechtermuisknop."
     )
