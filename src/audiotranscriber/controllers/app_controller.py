@@ -24,6 +24,7 @@ from audiotranscriber.state import (
     RecorderStatus,
     TranscriptionLanguage,
 )
+from audiotranscriber.update_checker import check_for_updates, refresh_model_cache
 
 
 class AppController(QObject):
@@ -40,6 +41,10 @@ class AppController(QObject):
     post_processing_progress = Signal(int, int, str)
     post_processing_finished = Signal(str, str)
     post_processing_failed = Signal(str)
+    update_check_finished = Signal(object)
+    update_check_failed = Signal(str)
+    model_cache_refresh_finished = Signal(str)
+    model_cache_refresh_failed = Signal(str)
 
     def __init__(self, config: AppConfig, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -96,11 +101,42 @@ class AppController(QObject):
         return self._recorder.output_dir
 
     @property
+    def model_cache_dir(self) -> Path:
+        return self._config.model_cache_dir
+
+    @property
     def dev_samples_dir(self) -> Path:
         return Path.cwd() / "dev_samples"
 
     def emit_current_state(self) -> None:
         self.state_changed.emit(self._state)
+
+    def check_for_updates(self) -> None:
+        thread = Thread(
+            target=self._run_update_check,
+            name="UpdateCheck",
+            daemon=True,
+        )
+        thread.start()
+
+    def refresh_transcription_models(self) -> None:
+        if self._state.status in {
+            RecorderStatus.RECORDING,
+            RecorderStatus.PAUSED,
+            RecorderStatus.PROCESSING,
+        }:
+            self.model_cache_refresh_failed.emit(
+                "Stop the current recording or processing task before refreshing models."
+            )
+            return
+
+        self._transcriber.reset_model()
+        thread = Thread(
+            target=self._run_model_cache_refresh,
+            name="ModelCacheRefresh",
+            daemon=True,
+        )
+        thread.start()
 
     def toggle_transcript(self) -> None:
         self._set_state(transcript_open=not self._state.transcript_open)
@@ -574,6 +610,24 @@ class AppController(QObject):
             return
 
         self.transcription_finished.emit(str(result_path))
+
+    def _run_update_check(self) -> None:
+        try:
+            info = check_for_updates(self._config.update_repo, self._config.model_cache_dir)
+        except Exception as exc:  # noqa: BLE001
+            self.update_check_failed.emit(str(exc))
+            return
+
+        self.update_check_finished.emit(info)
+
+    def _run_model_cache_refresh(self) -> None:
+        try:
+            message = refresh_model_cache(self._config.model_cache_dir)
+        except Exception as exc:  # noqa: BLE001
+            self.model_cache_refresh_failed.emit(str(exc))
+            return
+
+        self.model_cache_refresh_finished.emit(message)
 
     def _start_live_transcription(self, audio_path: Path) -> None:
         self._transcription_cancel.clear()

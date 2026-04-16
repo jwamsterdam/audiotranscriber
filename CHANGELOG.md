@@ -84,3 +84,4 @@ All notable changes to AudioTranscriber will be documented in this file.
 - Added a Windows Inno Setup installer template and packaging script.
 - Added friendlier production errors for missing/blocked microphones and first-use transcription model downloads.
 - Hardened Windows build scripts so PyInstaller/Inno failures stop the script and running app locks are reported clearly.
+- Wired update checking to GitHub Releases for `jwamsterdam/audiotranscriber` and added a model-cache refresh action.

@@ -34,6 +34,7 @@ from audiotranscriber.state import (
     RecorderStatus,
     TranscriptionLanguage,
 )
+from audiotranscriber.update_checker import UpdateInfo
 from audiotranscriber.ui.widgets import (
     GREEN,
     RED,
@@ -190,6 +191,10 @@ class RecorderStripWindow(QMainWindow):
     def bind_controller(self, controller: AppController) -> None:
         self._controller = controller
         controller.state_changed.connect(self.apply_state)
+        controller.update_check_finished.connect(self._handle_update_check_finished)
+        controller.update_check_failed.connect(self._handle_update_check_failed)
+        controller.model_cache_refresh_finished.connect(self._handle_model_cache_refresh_finished)
+        controller.model_cache_refresh_failed.connect(self._handle_model_cache_refresh_failed)
         controller.emit_current_state()
 
     def apply_state(self, state: RecorderState) -> None:
@@ -328,6 +333,19 @@ class RecorderStripWindow(QMainWindow):
             update_action = QAction("Check for updates", menu)
             update_action.triggered.connect(self._check_for_updates)
             menu.addAction(update_action)
+
+            refresh_models_action = QAction("Refresh transcription models", menu)
+            refresh_models_action.setEnabled(
+                self._controller is not None
+                and self._controller.state.status
+                not in {
+                    RecorderStatus.RECORDING,
+                    RecorderStatus.PAUSED,
+                    RecorderStatus.PROCESSING,
+                }
+            )
+            refresh_models_action.triggered.connect(self._refresh_transcription_models)
+            menu.addAction(refresh_models_action)
             menu.addSeparator()
 
         close_action = QAction("Close app", menu)
@@ -597,18 +615,78 @@ class RecorderStripWindow(QMainWindow):
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.resolve())))
 
     def _check_for_updates(self) -> None:
-        if self._config.update_url:
-            QDesktopServices.openUrl(QUrl(self._config.update_url))
+        if self._controller is None:
+            return
+
+        self._controller.check_for_updates()
+
+    def _refresh_transcription_models(self) -> None:
+        if self._controller is None:
+            return
+
+        result = QMessageBox.question(
+            self,
+            "Refresh transcription models",
+            (
+                "Clear the local Whisper model cache?\n\n"
+                "The next transcription will download the model again. "
+                "This can help if model files are missing or outdated."
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if result != QMessageBox.StandardButton.Yes:
+            return
+
+        self._controller.refresh_transcription_models()
+
+    def _handle_update_check_finished(self, info: UpdateInfo) -> None:
+        if info.error:
+            QMessageBox.warning(
+                self,
+                "Check for updates",
+                f"{info.error}\n\n{info.model_cache_summary}",
+            )
+            return
+
+        latest = info.latest_version or "unknown"
+        if info.update_available:
+            result = QMessageBox.question(
+                self,
+                "Update available",
+                (
+                    f"A new AudioTranscriber version is available.\n\n"
+                    f"Current version: {info.current_version}\n"
+                    f"Latest version: {latest}\n\n"
+                    f"{info.model_cache_summary}\n\n"
+                    "Open the GitHub release page?"
+                ),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if result == QMessageBox.StandardButton.Yes:
+                QDesktopServices.openUrl(QUrl(info.release_url))
             return
 
         QMessageBox.information(
             self,
-            "Check for updates",
+            "AudioTranscriber is up to date",
             (
-                "Update checking is enabled, but no release URL is configured yet.\n\n"
-                "When the production release location is known, add it to the app config."
+                f"You are using the latest available version.\n\n"
+                f"Current version: {info.current_version}\n"
+                f"Latest version: {latest}\n\n"
+                f"{info.model_cache_summary}"
             ),
         )
+
+    def _handle_update_check_failed(self, error: str) -> None:
+        QMessageBox.warning(self, "Check for updates", error)
+
+    def _handle_model_cache_refresh_finished(self, message: str) -> None:
+        QMessageBox.information(self, "Refresh transcription models", message)
+
+    def _handle_model_cache_refresh_failed(self, error: str) -> None:
+        QMessageBox.warning(self, "Refresh transcription models", error)
 
     def _select_dev_sample(self) -> None:
         if self._controller is None:

@@ -43,6 +43,9 @@ class TranscriptionPipeline:
     def config(self) -> TranscriptionConfig:
         return self._config
 
+    def reset_model(self) -> None:
+        self._model = None
+
     def set_language(self, language: str | None) -> None:
         self._config = TranscriptionConfig(
             model_name=self._config.model_name,

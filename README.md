@@ -91,11 +91,13 @@ Production user-facing errors are kept explicit for common setup problems:
 Optional update URL:
 
 ```text
-AUDIOTRANSCRIBER_UPDATE_URL=https://your-release-page
+AUDIOTRANSCRIBER_UPDATE_REPO=jwamsterdam/audiotranscriber
 ```
 
-If no update URL is configured, the production menu still shows `Check for updates`,
-but it displays a friendly "not configured yet" message.
+The production menu uses GitHub Releases for `Check for updates`. The default repo is
+`jwamsterdam/audiotranscriber`. It also reports whether the local Whisper model cache
+exists. `Refresh transcription models` clears the cache so the next transcription
+downloads fresh model files.
 
 ## Run
 

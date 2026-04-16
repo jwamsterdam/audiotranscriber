@@ -92,6 +92,8 @@ Prod profile:
 - Hides dev sample/test input menu actions.
 - Stores recordings in `Documents/AudioTranscriber/Recordings`.
 - Stores models in the OS app data folder and downloads them on first use.
+- Checks GitHub Releases for updates using `jwamsterdam/audiotranscriber` by default.
+- `Refresh transcription models` clears the model cache so the next transcription downloads fresh files.
 
 Use restart-on-save during UI iteration:
 

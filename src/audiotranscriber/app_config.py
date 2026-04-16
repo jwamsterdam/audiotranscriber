@@ -10,8 +10,11 @@ from pathlib import Path
 from audiotranscriber.state import InputSource
 
 APP_NAME = "AudioTranscriber"
+APP_VERSION = "0.1.0"
+DEFAULT_UPDATE_REPO = "jwamsterdam/audiotranscriber"
 PROFILE_ENV_VAR = "AUDIOTRANSCRIBER_PROFILE"
 UPDATE_URL_ENV_VAR = "AUDIOTRANSCRIBER_UPDATE_URL"
+UPDATE_REPO_ENV_VAR = "AUDIOTRANSCRIBER_UPDATE_REPO"
 
 
 @dataclass(frozen=True)
@@ -25,6 +28,7 @@ class AppConfig:
     model_cache_dir: Path
     download_models_on_first_use: bool
     enable_update_check: bool
+    update_repo: str
     update_url: str | None
 
 
@@ -48,6 +52,7 @@ def _dev_config() -> AppConfig:
         model_cache_dir=root / ".models",
         download_models_on_first_use=True,
         enable_update_check=True,
+        update_repo=os.environ.get(UPDATE_REPO_ENV_VAR, DEFAULT_UPDATE_REPO),
         update_url=os.environ.get(UPDATE_URL_ENV_VAR),
     )
 
@@ -63,6 +68,7 @@ def _prod_config() -> AppConfig:
         model_cache_dir=_app_data_dir() / "models",
         download_models_on_first_use=True,
         enable_update_check=True,
+        update_repo=os.environ.get(UPDATE_REPO_ENV_VAR, DEFAULT_UPDATE_REPO),
         update_url=os.environ.get(UPDATE_URL_ENV_VAR),
     )
 
