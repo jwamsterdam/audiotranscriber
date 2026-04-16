@@ -67,5 +67,5 @@ All notable changes to AudioTranscriber will be documented in this file.
 - Removed the separate final transcription lane so the live chunks are the single source of transcript text.
 - Live transcription is now written directly to the normal `.txt` file.
 - Stop now drains queued live chunks and does not start a second transcription pass.
-- Added a context-menu transcription mode slot, currently `Transcription: live chunks only`, for future strategies.
 - Added a compact main-strip language selector for `AUTO`, `NL`, and `EN` faster-whisper language hints.
+- Removed the experimental LocalAgreement sentence mode and transcription mode context menu.

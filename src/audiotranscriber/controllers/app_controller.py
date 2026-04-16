@@ -16,7 +16,6 @@ from audiotranscriber.state import (
     RecorderState,
     RecorderStatus,
     TranscriptionLanguage,
-    TranscriptionMode,
 )
 
 
@@ -135,23 +134,6 @@ class AppController(QObject):
             preview_text=f"Taal ingesteld op {label}. Klaar voor opname.",
         )
 
-    def set_transcription_mode(self, mode: TranscriptionMode) -> None:
-        if self._state.status in {
-            RecorderStatus.RECORDING,
-            RecorderStatus.PAUSED,
-            RecorderStatus.PROCESSING,
-        }:
-            return
-
-        label = {
-            TranscriptionMode.LIVE_ONLY: "live chunks only",
-        }[mode]
-        self._set_state(
-            transcription_mode=mode,
-            error_message=None,
-            preview_text=f"Transcriptiemodus ingesteld op {label}.",
-        )
-
     def select_dev_sample(self, path: Path) -> None:
         if self._state.status in {
             RecorderStatus.RECORDING,
@@ -201,7 +183,10 @@ class AppController(QObject):
                 and self._state.selected_dev_sample_path is not None
                 else None
             )
-            output_path = self._recorder.start(self._state.input_source, source_path=source_path)
+            output_path = self._recorder.start(
+                self._state.input_source,
+                source_path=source_path,
+            )
         except Exception as exc:  # noqa: BLE001
             self._elapsed_timer.stop()
             self._set_state(
@@ -416,8 +401,7 @@ class AppController(QObject):
         print(
             "Starting near-real-time transcription: "
             f"{audio_path} "
-            f"live_chunk_seconds={LIVE_CHUNK_SECONDS} "
-            f"mode={self._state.transcription_mode.value} "
+            f"chunk_seconds={LIVE_CHUNK_SECONDS} "
             f"language={self._transcriber.config.language or 'auto'}",
             flush=True,
         )
@@ -455,7 +439,6 @@ class AppController(QObject):
             except Exception as exc:  # noqa: BLE001
                 self.transcription_failed.emit(str(exc))
                 return
-
             if text:
                 self._live_transcript_parts[chunk_index] = text
             self._live_chunks_done = chunk_index
@@ -488,8 +471,7 @@ class AppController(QObject):
             transcript_text = self._render_live_transcript_text()
             self._live_transcript_path.write_text(transcript_text, encoding="utf-8")
             print(
-                f"Transcript saved from {len(self._live_transcript_parts)} "
-                f"{LIVE_CHUNK_SECONDS}-second live chunks.",
+                f"Transcript saved from {len(self._live_transcript_parts)} live chunks.",
                 flush=True,
             )
             self._live_audio_path = None

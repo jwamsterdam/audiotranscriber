@@ -25,7 +25,6 @@ chunked transcription:
 - Dev samples can be used as a recording input source for end-to-end testing.
 - Near-real-time transcript preview updates from short completed chunks while recording.
 - Main strip language selector: `AUTO`, `NL`, or `EN`.
-- Context-menu transcription mode selection, currently `live chunks only`.
 - Stop only drains/merges queued live chunks instead of starting a second transcription pass.
 
 Phase 2 raw audio format:
@@ -47,7 +46,6 @@ device=cpu
 compute_type=int8
 live_chunk_seconds=4
 language=auto | nl | en
-mode=live_only
 ```
 
 ## Run
@@ -97,5 +95,5 @@ python -m audiotranscriber.main
 
 Phase 2 now has raw WAV recording, pause/stop behavior, timestamped output paths, test tone input, microphone input, and a real audio level indicator.
 Phase 3 adds chunking plus faster-whisper background transcription.
-Phase 3.5 now uses one live transcription pass that is written directly to `.txt`.
+Phase 3.5 now uses one chunk-based live transcription pass written directly to `.txt`.
 Phase 4 should finalize MP3 export, error handling, settings, and packaging preparation.

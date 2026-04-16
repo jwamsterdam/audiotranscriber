@@ -30,7 +30,6 @@ from audiotranscriber.state import (
     RecorderState,
     RecorderStatus,
     TranscriptionLanguage,
-    TranscriptionMode,
 )
 from audiotranscriber.ui.widgets import (
     GREEN,
@@ -265,28 +264,6 @@ class RecorderStripWindow(QMainWindow):
             lambda: self._controller and self._controller.set_input_source(InputSource.DEV_SAMPLE)
         )
         menu.addAction(dev_sample_input_action)
-        menu.addSeparator()
-
-        live_only_action = QAction("Transcription: live chunks only", menu)
-        live_only_action.setCheckable(True)
-        live_only_action.setChecked(
-            self._controller is not None
-            and self._controller.state.transcription_mode == TranscriptionMode.LIVE_ONLY
-        )
-        live_only_action.setEnabled(
-            self._controller is not None
-            and self._controller.state.status
-            not in {
-                RecorderStatus.RECORDING,
-                RecorderStatus.PAUSED,
-                RecorderStatus.PROCESSING,
-            }
-        )
-        live_only_action.triggered.connect(
-            lambda: self._controller
-            and self._controller.set_transcription_mode(TranscriptionMode.LIVE_ONLY)
-        )
-        menu.addAction(live_only_action)
         menu.addSeparator()
 
         select_sample_action = QAction("Select dev sample", menu)

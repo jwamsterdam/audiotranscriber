@@ -23,7 +23,6 @@ MAX_INT16 = 32767
 LevelCallback = Callable[[float], None]
 ChunkCallback = Callable[[bytes, int], None]
 LIVE_CHUNK_SECONDS = 4
-LIVE_CHUNK_BYTES = SAMPLE_RATE * LIVE_CHUNK_SECONDS * SAMPLE_WIDTH_BYTES
 
 
 class RecordingPipeline:
@@ -44,6 +43,7 @@ class RecordingPipeline:
         self._write_lock = threading.Lock()
         self._chunk_buffer = bytearray()
         self._chunk_index = 0
+        self._chunk_target_bytes = self._chunk_bytes_for_seconds(LIVE_CHUNK_SECONDS)
         self._wave_file: wave.Wave_write | None = None
         self._output_path: Path | None = None
         self._source = InputSource.TEST_TONE
@@ -56,7 +56,12 @@ class RecordingPipeline:
     def output_path(self) -> Path | None:
         return self._output_path
 
-    def start(self, source: InputSource, source_path: Path | None = None) -> Path:
+    def start(
+        self,
+        source: InputSource,
+        source_path: Path | None = None,
+        chunk_seconds: int = LIVE_CHUNK_SECONDS,
+    ) -> Path:
         if self._thread and self._thread.is_alive():
             raise RuntimeError("Recording is already running.")
 
@@ -70,6 +75,7 @@ class RecordingPipeline:
         self._pause_event.clear()
         self._chunk_buffer = bytearray()
         self._chunk_index = 0
+        self._chunk_target_bytes = self._chunk_bytes_for_seconds(chunk_seconds)
         self._output_dir.mkdir(parents=True, exist_ok=True)
         self._output_path = self._output_dir / self._timestamped_name()
 
@@ -183,10 +189,10 @@ class RecordingPipeline:
                 self._wave_file.writeframes(frames)
             if self._on_chunk is not None:
                 self._chunk_buffer.extend(frames)
-                while len(self._chunk_buffer) >= LIVE_CHUNK_BYTES:
+                while len(self._chunk_buffer) >= self._chunk_target_bytes:
                     self._chunk_index += 1
-                    chunk = bytes(self._chunk_buffer[:LIVE_CHUNK_BYTES])
-                    del self._chunk_buffer[:LIVE_CHUNK_BYTES]
+                    chunk = bytes(self._chunk_buffer[: self._chunk_target_bytes])
+                    del self._chunk_buffer[: self._chunk_target_bytes]
                     chunks_to_emit.append((chunk, self._chunk_index))
 
         for chunk, chunk_index in chunks_to_emit:
@@ -218,6 +224,10 @@ class RecordingPipeline:
     def _timestamped_name() -> str:
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         return f"recording_{timestamp}.raw.wav"
+
+    @staticmethod
+    def _chunk_bytes_for_seconds(seconds: int) -> int:
+        return SAMPLE_RATE * max(1, seconds) * SAMPLE_WIDTH_BYTES
 
     @staticmethod
     def _check_microphone_available() -> None:
