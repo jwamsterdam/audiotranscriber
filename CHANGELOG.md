@@ -77,3 +77,4 @@ All notable changes to AudioTranscriber will be documented in this file.
 - Added an `imageio-ffmpeg` fallback so MP3 export does not require ffmpeg on the system PATH.
 - Renamed post-processing menu actions and added transcript-panel progress feedback.
 - Added language confirmation before high-quality transcript creation and centered the language selector labels.
+- Replaced the language combo with a compact centered menu button and made transcript unfold immediate to avoid stutter.

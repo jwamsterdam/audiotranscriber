@@ -6,11 +6,10 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtCore import QUrl
-from PySide6.QtGui import QAction, QDesktopServices
+from PySide6.QtGui import QAction, QActionGroup, QDesktopServices
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
     QApplication,
-    QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -22,6 +21,7 @@ from PySide6.QtWidgets import (
     QTextEdit,
     QSizePolicy,
     QSpacerItem,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -41,7 +41,6 @@ from audiotranscriber.ui.widgets import (
     StatusDot,
     StripIconButton,
     WaveformWidget,
-    animate_height,
 )
 
 DEFAULT_WIDTH = 780
@@ -55,7 +54,6 @@ class RecorderStripWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self._controller: AppController | None = None
-        self._height_animation = None
         self._drag_position = None
         self._snapped_to_top = False
         self._snap_screen_top = 0
@@ -93,22 +91,30 @@ class RecorderStripWindow(QMainWindow):
         self.waveform = WaveformWidget(self.strip)
         self.timer_label = QLabel("00:00:00", self.strip)
         self.timer_label.setObjectName("timerLabel")
-        self.language_combo = QComboBox(self.strip)
-        self.language_combo.setObjectName("languageCombo")
-        self.language_combo.addItem("AUTO", TranscriptionLanguage.AUTO.value)
-        self.language_combo.addItem("NL", TranscriptionLanguage.DUTCH.value)
-        self.language_combo.addItem("EN", TranscriptionLanguage.ENGLISH.value)
-        self.language_combo.setEditable(True)
-        self.language_combo.lineEdit().setReadOnly(True)
-        self.language_combo.lineEdit().setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.language_combo.lineEdit().setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        for index in range(self.language_combo.count()):
-            self.language_combo.setItemData(
-                index,
-                Qt.AlignmentFlag.AlignCenter,
-                Qt.ItemDataRole.TextAlignmentRole,
-            )
-        self.language_combo.setFixedWidth(64)
+        self.language_button = QToolButton(self.strip)
+        self.language_button.setObjectName("languageButton")
+        self.language_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.language_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self.language_button.setFixedWidth(64)
+        self.language_menu = QMenu(self.language_button)
+        self.language_menu.setObjectName("languageMenu")
+        self.language_actions = QActionGroup(self.language_menu)
+        self.language_actions.setExclusive(True)
+        self._language_action_by_value: dict[str, QAction] = {}
+        for label, language in (
+            ("AUTO", TranscriptionLanguage.AUTO),
+            ("NL", TranscriptionLanguage.DUTCH),
+            ("EN", TranscriptionLanguage.ENGLISH),
+        ):
+            action = QAction(label, self.language_menu)
+            action.setCheckable(True)
+            action.setData(language.value)
+            action.triggered.connect(self._language_changed)
+            self.language_actions.addAction(action)
+            self.language_menu.addAction(action)
+            self._language_action_by_value[language.value] = action
+        self.language_button.setMenu(self.language_menu)
+        self._set_language_button_text(TranscriptionLanguage.AUTO)
         self.stop_button = StripIconButton(IconKind.STOP, self.strip)
         self.pause_button = StripIconButton(IconKind.PAUSE, self.strip)
         self.record_button = StripIconButton(IconKind.RECORD, self.strip)
@@ -122,7 +128,7 @@ class RecorderStripWindow(QMainWindow):
         strip_layout.addWidget(self.status_dot)
         strip_layout.addWidget(self.waveform, 1)
         strip_layout.addWidget(self.timer_label)
-        strip_layout.addWidget(self.language_combo)
+        strip_layout.addWidget(self.language_button)
         strip_layout.addWidget(separator)
         strip_layout.addWidget(self.stop_button)
         strip_layout.addWidget(self.pause_button)
@@ -404,7 +410,6 @@ class RecorderStripWindow(QMainWindow):
         self.pause_button.clicked.connect(lambda: self._controller and self._controller.pause())
         self.stop_button.clicked.connect(self._stop_clicked)
         self.expand_button.clicked.connect(lambda: self._controller and self._controller.toggle_transcript())
-        self.language_combo.currentIndexChanged.connect(self._language_changed)
 
     def _set_status_color(self, status: RecorderStatus) -> None:
         if status == RecorderStatus.RECORDING:
@@ -451,41 +456,40 @@ class RecorderStripWindow(QMainWindow):
                 min-width: 78px;
             }
 
-            QComboBox#languageCombo {
+            QToolButton#languageButton {
                 background: rgba(255, 255, 255, 0.08);
                 color: #f7f8f8;
                 border: 1px solid rgba(255, 255, 255, 0.12);
                 border-radius: 8px;
-                padding: 4px 8px;
+                padding: 4px 0;
                 font-size: 12px;
                 font-weight: 700;
-                text-align: center;
             }
 
-            QComboBox#languageCombo:disabled {
+            QToolButton#languageButton:disabled {
                 color: rgba(247, 248, 248, 0.48);
             }
 
-            QComboBox#languageCombo QLineEdit {
-                background: transparent;
-                border: none;
-                color: #f7f8f8;
-                selection-background-color: transparent;
-                padding: 0;
-                font-size: 12px;
-                font-weight: 700;
+            QToolButton#languageButton::menu-indicator {
+                image: none;
+                width: 0;
             }
 
-            QComboBox#languageCombo::drop-down {
-                border: none;
-                width: 14px;
-            }
-
-            QComboBox#languageCombo QAbstractItemView {
+            QMenu#languageMenu {
                 background: #151a1d;
                 color: #f7f8f8;
-                selection-background-color: rgba(255, 255, 255, 0.12);
                 border: 1px solid rgba(255, 255, 255, 0.14);
+                border-radius: 8px;
+                padding: 6px;
+            }
+
+            QMenu#languageMenu::item {
+                padding: 8px 20px;
+                border-radius: 6px;
+            }
+
+            QMenu#languageMenu::item:selected {
+                background: rgba(255, 255, 255, 0.12);
             }
 
             QFrame#transcriptPanel {
@@ -686,16 +690,12 @@ class RecorderStripWindow(QMainWindow):
         return Path(sample_path)
 
     def _apply_language_state(self, state: RecorderState) -> None:
-        self.language_combo.blockSignals(True)
-        index = self.language_combo.findData(state.transcription_language.value)
-        if index >= 0 and self.language_combo.currentIndex() != index:
-            self.language_combo.setCurrentIndex(index)
-        self.language_combo.setEnabled(
+        self.language_button.setEnabled(
             state.status not in {
                 RecorderStatus.PROCESSING,
             }
         )
-        self.language_combo.blockSignals(False)
+        self._set_language_button_text(state.transcription_language)
 
     def _language_changed(self) -> None:
         if self._controller is None:
@@ -705,11 +705,24 @@ class RecorderStripWindow(QMainWindow):
         self._controller.set_transcription_language(language)
 
     def _selected_transcription_language(self) -> TranscriptionLanguage:
-        value = self.language_combo.currentData()
+        checked_action = self.language_actions.checkedAction()
+        value = checked_action.data() if checked_action is not None else TranscriptionLanguage.AUTO.value
         try:
             return TranscriptionLanguage(value)
         except ValueError:
             return TranscriptionLanguage.AUTO
+
+    def _set_language_button_text(self, language: TranscriptionLanguage) -> None:
+        action = self._language_action_by_value.get(language.value)
+        if action is not None and not action.isChecked():
+            action.setChecked(True)
+        self.language_button.setText(
+            {
+                TranscriptionLanguage.AUTO: "AUTO",
+                TranscriptionLanguage.DUTCH: "NL",
+                TranscriptionLanguage.ENGLISH: "EN",
+            }[language]
+        )
 
     def _confirm_high_quality_language(self, language: TranscriptionLanguage) -> bool:
         label = {
@@ -741,13 +754,8 @@ class RecorderStripWindow(QMainWindow):
 
     def _animate_panel_height(self, target_height: int) -> None:
         anchor = self.frameGeometry().topLeft()
-        self._height_animation = animate_height(self.transcript_panel, target_height)
-        self._height_animation.valueChanged.connect(
-            lambda value: self._sync_window_height(int(value), anchor)
-        )
-        self._height_animation.finished.connect(
-            lambda: self._sync_window_height(target_height, anchor)
-        )
+        self.transcript_panel.setMaximumHeight(target_height)
+        self._sync_window_height(target_height, anchor)
 
     def _sync_window_height(self, panel_height: int, anchor) -> None:  # noqa: ANN001
         self.setFixedHeight(self.strip.height() + max(0, panel_height))
