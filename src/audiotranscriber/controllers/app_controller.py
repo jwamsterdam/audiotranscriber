@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import sys
+import ctypes
+import ctypes.wintypes
+import os
+import platform
 from dataclasses import replace
 from pathlib import Path
 from queue import Queue
@@ -137,10 +142,14 @@ class AppController(QObject):
 
     def diagnostics_sections(self) -> list[tuple[str, list[tuple[str, str]]]]:
         selected = "Auto-detect"
+        saved_device_available = self._microphone_device_key is None
         for device in self.microphone_devices():
             if device.key == self._microphone_device_key:
                 selected = device.label
+                saved_device_available = True
                 break
+        if self._microphone_device_key is not None and not saved_device_available:
+            selected = "Saved device is not currently available"
 
         sample_width_bits = SAMPLE_WIDTH_BYTES * 8
         language = self._transcriber.config.language or "auto"
@@ -151,34 +160,46 @@ class AppController(QObject):
                 "App",
                 [
                     ("Profile", self._config.profile),
-                    ("Recordings folder", str(self._config.recordings_dir)),
-                    ("Model cache", str(self._config.model_cache_dir)),
-                    ("Settings file", settings_path),
+                    ("Recordings folder", _display_path(self._config.recordings_dir)),
+                    ("Model cache", _display_path(self._config.model_cache_dir)),
+                    ("Settings file", _display_path(settings_path)),
+                ],
+            ),
+            (
+                "System",
+                [
+                    ("CPU", _cpu_name()),
+                    ("CPU cores", _cpu_cores()),
+                    ("CPU threads", _cpu_threads()),
+                    ("Installed memory", _installed_memory()),
                 ],
             ),
             (
                 "Microphone",
                 [
                     ("Input mode", selected),
+                    ("System default input", self._recorder.default_microphone_device_label()),
                     ("Saved device key", self._microphone_device_key or "Auto-detect"),
+                    ("Saved device available", "Yes" if saved_device_available else "No"),
                     ("Detected input devices", str(len(self.microphone_devices()))),
                     ("Recording format", f"{SAMPLE_RATE} Hz, {CHANNELS} channel, {sample_width_bits}-bit PCM"),
-                    ("Live chunk length", f"{LIVE_CHUNK_SECONDS} seconds"),
                 ],
             ),
+        ]
+
+    def model_diagnostics_rows(self) -> list[tuple[str, str, str]]:
+        language = self._transcriber.config.language or "auto"
+        return [
+            ("Model", self._transcriber.config.model_name, HIGH_QUALITY_MODEL_NAME),
+            ("Device", self._transcriber.config.device, self._transcriber.config.device),
             (
-                "Transcription Models",
-                [
-                    ("Live/recent transcript model", self._transcriber.config.model_name),
-                    ("Live device", self._transcriber.config.device),
-                    ("Live compute type", self._transcriber.config.compute_type),
-                    ("Live language", language),
-                    ("High-quality model", HIGH_QUALITY_MODEL_NAME),
-                    ("High-quality device", self._transcriber.config.device),
-                    ("High-quality compute type", self._transcriber.config.compute_type),
-                    ("High-quality chunk length", f"{HIGH_QUALITY_CHUNK_SECONDS} seconds"),
-                ],
+                "Compute type",
+                self._transcriber.config.compute_type,
+                self._transcriber.config.compute_type,
             ),
+            ("Language", language, language),
+            ("Chunk length", f"{LIVE_CHUNK_SECONDS} seconds", f"{HIGH_QUALITY_CHUNK_SECONDS} seconds"),
+            ("Output", "*.txt", "*.high-quality.txt"),
         ]
 
     def emit_current_state(self) -> None:
@@ -1073,3 +1094,124 @@ class AppController(QObject):
         if isinstance(value, str) and value.strip():
             return value.strip()
         return None
+
+
+def _display_path(path: Path | str) -> str:
+    value = str(path)
+    if sys.platform == "win32":
+        return value.replace("/", "\\")
+    return value.replace("\\", "/")
+
+
+def _cpu_name() -> str:
+    if sys.platform == "win32":
+        try:
+            import winreg
+
+            with winreg.OpenKey(
+                winreg.HKEY_LOCAL_MACHINE,
+                r"HARDWARE\DESCRIPTION\System\CentralProcessor\0",
+            ) as key:
+                value, _value_type = winreg.QueryValueEx(key, "ProcessorNameString")
+                if isinstance(value, str) and value.strip():
+                    return " ".join(value.split())
+        except OSError:
+            pass
+
+    candidates = [
+        platform.processor(),
+        platform.machine(),
+    ]
+    for candidate in candidates:
+        if candidate:
+            return candidate
+    return "Unknown"
+
+
+def _cpu_cores() -> str:
+    if sys.platform == "win32":
+        cores = _windows_physical_core_count()
+        if cores is not None:
+            return str(cores)
+    return "Unknown"
+
+
+def _cpu_threads() -> str:
+    return str(os.cpu_count() or "Unknown")
+
+
+def _installed_memory() -> str:
+    if sys.platform == "win32":
+        return _windows_installed_memory()
+    page_size = os.sysconf("SC_PAGE_SIZE") if hasattr(os, "sysconf") else None
+    page_count = os.sysconf("SC_PHYS_PAGES") if hasattr(os, "sysconf") else None
+    if isinstance(page_size, int) and isinstance(page_count, int):
+        return _format_bytes(page_size * page_count)
+    return "Unknown"
+
+
+def _windows_installed_memory() -> str:
+    class MemoryStatus(ctypes.Structure):
+        _fields_ = [
+            ("dwLength", ctypes.c_ulong),
+            ("dwMemoryLoad", ctypes.c_ulong),
+            ("ullTotalPhys", ctypes.c_ulonglong),
+            ("ullAvailPhys", ctypes.c_ulonglong),
+            ("ullTotalPageFile", ctypes.c_ulonglong),
+            ("ullAvailPageFile", ctypes.c_ulonglong),
+            ("ullTotalVirtual", ctypes.c_ulonglong),
+            ("ullAvailVirtual", ctypes.c_ulonglong),
+            ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+        ]
+
+    status = MemoryStatus()
+    status.dwLength = ctypes.sizeof(MemoryStatus)
+    if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+        return _format_bytes(status.ullTotalPhys)
+    return "Unknown"
+
+
+def _windows_physical_core_count() -> int | None:
+    relation_processor_core = 0
+    error_insufficient_buffer = 122
+    ulong_ptr = ctypes.c_ulonglong if ctypes.sizeof(ctypes.c_void_p) == 8 else ctypes.c_ulong
+
+    class SystemLogicalProcessorInformation(ctypes.Structure):
+        _fields_ = [
+            ("ProcessorMask", ulong_ptr),
+            ("Relationship", ctypes.wintypes.DWORD),
+            ("Reserved", ctypes.c_byte * 16),
+        ]
+
+    length = ctypes.wintypes.DWORD(0)
+    result = ctypes.windll.kernel32.GetLogicalProcessorInformation(None, ctypes.byref(length))
+    if result:
+        return None
+    if ctypes.windll.kernel32.GetLastError() not in {0, error_insufficient_buffer}:
+        return None
+
+    buffer = ctypes.create_string_buffer(length.value)
+    result = ctypes.windll.kernel32.GetLogicalProcessorInformation(
+        ctypes.cast(buffer, ctypes.POINTER(SystemLogicalProcessorInformation)),
+        ctypes.byref(length),
+    )
+    if not result:
+        return None
+
+    entry_size = ctypes.sizeof(SystemLogicalProcessorInformation)
+    if entry_size <= 0:
+        return None
+
+    entries = length.value // entry_size
+    info_array = ctypes.cast(
+        buffer,
+        ctypes.POINTER(SystemLogicalProcessorInformation * entries),
+    ).contents
+    return sum(1 for entry in info_array if entry.Relationship == relation_processor_core)
+
+
+def _format_bytes(value: int) -> str:
+    gib = value / (1024**3)
+    if gib >= 10:
+        return f"{gib:.0f} GB"
+    return f"{gib:.1f} GB"

@@ -930,6 +930,20 @@ def _resource_path(relative_path: str) -> Path:
     return base / relative_path
 
 
+def _clean_device_name(name: str) -> str:
+    cleaned = name.strip()
+    while "  " in cleaned:
+        cleaned = cleaned.replace("  ", " ")
+
+    if "(" in cleaned and ")" in cleaned:
+        prefix, _, suffix = cleaned.partition("(")
+        inner, _, trailing = suffix.partition(")")
+        if inner.strip().startswith("@") or not inner.strip():
+            cleaned = prefix.strip()
+
+    return cleaned.strip(" ;")
+
+
 class DiagnosticsDialog(QDialog):
     """Dark app diagnostics dialog for audio, model, and runtime settings."""
 
@@ -973,9 +987,15 @@ class DiagnosticsDialog(QDialog):
         for title, rows in controller.diagnostics_sections():
             scroll_layout.addWidget(self._section(title, rows, scroll_content))
         scroll_layout.addWidget(
-            self._section(
+            self._model_section(
+                "Transcription Models",
+                controller.model_diagnostics_rows(),
+                scroll_content,
+            )
+        )
+        scroll_layout.addWidget(
+            self._device_section(
                 "Detected Input Devices",
-                self._microphone_device_rows(),
                 scroll_content,
             )
         )
@@ -1031,25 +1051,104 @@ class DiagnosticsDialog(QDialog):
         layout.addLayout(grid)
         return section
 
-    def _microphone_device_rows(self) -> list[tuple[str, str]]:
+    def _model_section(
+        self,
+        title: str,
+        rows: list[tuple[str, str, str]],
+        parent: QWidget,
+    ) -> QFrame:
+        section = QFrame(parent)
+        section.setObjectName("diagnosticsSection")
+        layout = QVBoxLayout(section)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(10)
+
+        heading = QLabel(title, section)
+        heading.setObjectName("diagnosticsSectionTitle")
+        layout.addWidget(heading)
+
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(18)
+        grid.setVerticalSpacing(8)
+        grid.setColumnMinimumWidth(0, 140)
+        grid.setColumnMinimumWidth(1, 150)
+        grid.setColumnMinimumWidth(2, 150)
+        grid.setColumnStretch(0, 0)
+        grid.setColumnStretch(1, 0)
+        grid.setColumnStretch(2, 0)
+        grid.setColumnStretch(3, 1)
+
+        live_header = QLabel("Live translation", section)
+        live_header.setObjectName("diagnosticsColumnHeader")
+        high_quality_header = QLabel("High quality", section)
+        high_quality_header.setObjectName("diagnosticsColumnHeader")
+        grid.addWidget(live_header, 0, 1)
+        grid.addWidget(high_quality_header, 0, 2)
+        grid.addItem(
+            QSpacerItem(1, 1, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum),
+            0,
+            3,
+        )
+
+        for row_index, (label, live_value, high_quality_value) in enumerate(rows, start=1):
+            key_label = QLabel(label, section)
+            key_label.setObjectName("diagnosticsKey")
+            live_label = QLabel(live_value, section)
+            live_label.setObjectName("diagnosticsValue")
+            live_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            live_label.setWordWrap(True)
+            high_quality_label = QLabel(high_quality_value, section)
+            high_quality_label.setObjectName("diagnosticsValue")
+            high_quality_label.setTextInteractionFlags(
+                Qt.TextInteractionFlag.TextSelectableByMouse
+            )
+            high_quality_label.setWordWrap(True)
+            grid.addWidget(key_label, row_index, 0)
+            grid.addWidget(live_label, row_index, 1)
+            grid.addWidget(high_quality_label, row_index, 2)
+
+        layout.addLayout(grid)
+        return section
+
+    def _device_section(self, title: str, parent: QWidget) -> QFrame:
+        section = QFrame(parent)
+        section.setObjectName("diagnosticsSection")
+        layout = QVBoxLayout(section)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(10)
+
+        heading = QLabel(title, section)
+        heading.setObjectName("diagnosticsSectionTitle")
+        layout.addWidget(heading)
+
         devices = self._controller.microphone_devices()
         if not devices:
-            return [("Devices", "No input devices found")]
+            empty_label = QLabel("No input devices found", section)
+            empty_label.setObjectName("diagnosticsValue")
+            layout.addWidget(empty_label)
+            return section
 
         selected_key = self._controller.state.selected_microphone_device_key
-        rows = []
-        for device in devices:
-            markers = []
-            if device.key == selected_key:
-                markers.append("selected")
-            marker = f" ({', '.join(markers)})" if markers else ""
-            rows.append(
-                (
-                    f"{device.index}: {device.name}{marker}",
-                    f"{device.host_api}, {device.max_input_channels} input channel(s)",
-                )
-            )
-        return rows
+        for index, device in enumerate(devices, start=1):
+            marker = " (selected)" if device.key == selected_key else ""
+            row = QFrame(section)
+            row.setObjectName("diagnosticsDeviceRow")
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.setSpacing(10)
+
+            number = QLabel(f"{index}.", row)
+            number.setObjectName("diagnosticsDeviceNumber")
+            number.setFixedWidth(24)
+            device_label = QLabel(f"{_clean_device_name(device.name)}{marker}", row)
+            device_label.setObjectName("diagnosticsValue")
+            device_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            device_label.setWordWrap(True)
+            row_layout.addWidget(number, 0, Qt.AlignmentFlag.AlignTop)
+            row_layout.addWidget(device_label, 1)
+            layout.addWidget(row)
+
+        return section
 
     def _copy_diagnostics(self) -> None:
         sections = []
@@ -1057,6 +1156,13 @@ class DiagnosticsDialog(QDialog):
             sections.append(title)
             sections.extend(f"{label}: {value}" for label, value in rows)
             sections.append("")
+        sections.append("Transcription Models")
+        sections.append("Setting: Live translation | High quality")
+        sections.extend(
+            f"{label}: {live_value} | {high_quality_value}"
+            for label, live_value, high_quality_value in self._controller.model_diagnostics_rows()
+        )
+        sections.append("")
         sections.append("Microphone diagnostics")
         sections.append(self._controller.microphone_diagnostics())
         QApplication.clipboard().setText("\n".join(sections).strip())
@@ -1102,6 +1208,12 @@ class DiagnosticsDialog(QDialog):
                 font-weight: 800;
             }
 
+            QLabel#diagnosticsColumnHeader {
+                color: #ffffff;
+                font-size: 12px;
+                font-weight: 800;
+            }
+
             QLabel#diagnosticsKey {
                 color: #9da5a9;
                 font-size: 12px;
@@ -1111,6 +1223,17 @@ class DiagnosticsDialog(QDialog):
             QLabel#diagnosticsValue {
                 color: #f7f8f8;
                 font-size: 12px;
+            }
+
+            QFrame#diagnosticsDeviceRow {
+                background: transparent;
+                border: none;
+            }
+
+            QLabel#diagnosticsDeviceNumber {
+                color: #9da5a9;
+                font-size: 12px;
+                font-weight: 800;
             }
 
             QPushButton {

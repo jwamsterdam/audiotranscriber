@@ -121,6 +121,27 @@ class RecordingPipeline:
             lines.append("- none")
         return "\n".join(lines)
 
+    @staticmethod
+    def default_microphone_device_label() -> str:
+        try:
+            import sounddevice as sd
+        except ImportError:
+            return "Microphone backend missing"
+
+        try:
+            input_devices = _list_input_devices(sd)
+            default_input = sd.default.device[0]
+        except Exception:  # noqa: BLE001
+            return "None / unavailable"
+
+        if not isinstance(default_input, int) or default_input < 0:
+            return "None / unavailable"
+
+        for device in input_devices:
+            if device.index == default_input:
+                return device.label
+        return "None / unavailable"
+
     def start(
         self,
         source: InputSource,
