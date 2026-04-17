@@ -192,7 +192,7 @@ Create the Windows installer:
 Output:
 
 ```text
-installer\AudioTranscriberSetup-v0.1.3.exe
+installer\AudioTranscriberSetup-v0.1.4.exe
 ```
 
 `package-windows.ps1` runs the production folder build first, then uses Inno Setup 6
@@ -205,15 +205,15 @@ when it is installed. The installer is per-user and installs to:
 Create the portable Windows zip from the folder build:
 
 ```powershell
-Compress-Archive -Path .\dist\AudioTranscriber\* -DestinationPath .\installer\AudioTranscriber-v0.1.3-windows.zip -Force
+Compress-Archive -Path .\dist\AudioTranscriber\* -DestinationPath .\installer\AudioTranscriber-v0.1.4-windows.zip -Force
 ```
 
 Check expected outputs:
 
 ```powershell
 Get-Item .\dist\AudioTranscriber\AudioTranscriber.exe
-Get-Item .\installer\AudioTranscriberSetup-v0.1.3.exe
-Get-Item .\installer\AudioTranscriber-v0.1.3-windows.zip
+Get-Item .\installer\AudioTranscriberSetup-v0.1.4.exe
+Get-Item .\installer\AudioTranscriber-v0.1.4-windows.zip
 ```
 
 ## Release Checklist
@@ -234,7 +234,7 @@ Validate:
 git diff --check
 .\build-windows.ps1
 .\package-windows.ps1
-Compress-Archive -Path .\dist\AudioTranscriber\* -DestinationPath .\installer\AudioTranscriber-v0.1.3-windows.zip -Force
+Compress-Archive -Path .\dist\AudioTranscriber\* -DestinationPath .\installer\AudioTranscriber-v0.1.4-windows.zip -Force
 ```
 
 Commit and tag:
@@ -242,16 +242,16 @@ Commit and tag:
 ```powershell
 git status --short
 git add CHANGELOG.md README.md pyproject.toml installer-windows.iss package-windows.ps1 src\audiotranscriber
-git commit -m "Prepare v0.1.3 microphone input selection release"
-git tag -a v0.1.3 -m "AudioTranscriber v0.1.3"
+git commit -m "Prepare v0.1.4 diagnostics and high-quality transcription release"
+git tag -a v0.1.4 -m "AudioTranscriber v0.1.4"
 git push origin main
-git push origin v0.1.3
+git push origin v0.1.4
 ```
 
 Publish a GitHub Release with:
 
-- `installer\AudioTranscriberSetup-v0.1.3.exe`
-- `installer\AudioTranscriber-v0.1.3-windows.zip`
+- `installer\AudioTranscriberSetup-v0.1.4.exe`
+- `installer\AudioTranscriber-v0.1.4-windows.zip`
 
 ## Local Files
 

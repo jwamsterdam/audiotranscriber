@@ -2,7 +2,7 @@
 
 All notable changes to AudioTranscriber will be documented in this file.
 
-## Unreleased
+## 0.1.4 - Diagnostics and High-Quality Transcription Polish
 
 - Added a persistent `Microphone input` context-menu submenu with auto-detect and explicit input-device choices.
 - Saved the selected microphone device in user settings and used it for future microphone recordings, with auto-detect fallback when no saved device is selected.
