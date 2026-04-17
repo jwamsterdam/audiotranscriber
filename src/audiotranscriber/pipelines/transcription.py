@@ -26,10 +26,12 @@ class TranscriptionConfig:
     model_name: str = DEFAULT_MODEL_NAME
     device: str = DEFAULT_DEVICE
     compute_type: str = DEFAULT_COMPUTE_TYPE
+    cpu_threads: int = 0
     chunk_seconds: int = DEFAULT_CHUNK_SECONDS
     overlap_seconds: int = DEFAULT_OVERLAP_SECONDS
     language: str | None = DEFAULT_LANGUAGE
     model_cache_dir: Path | None = None
+    vad_filter: bool = False
 
 
 class TranscriptionPipeline:
@@ -51,10 +53,12 @@ class TranscriptionPipeline:
             model_name=self._config.model_name,
             device=self._config.device,
             compute_type=self._config.compute_type,
+            cpu_threads=self._config.cpu_threads,
             chunk_seconds=self._config.chunk_seconds,
             overlap_seconds=self._config.overlap_seconds,
             language=language,
             model_cache_dir=self._config.model_cache_dir,
+            vad_filter=self._config.vad_filter,
         )
 
     def transcript_path_for(self, audio_path: Path) -> Path:
@@ -96,7 +100,7 @@ class TranscriptionPipeline:
             segments, _info = model.transcribe(
                 chunk,
                 beam_size=1,
-                vad_filter=False,
+                vad_filter=self._config.vad_filter,
                 language=self._config.language,
             )
             text = " ".join(segment.text.strip() for segment in segments).strip()
@@ -117,7 +121,7 @@ class TranscriptionPipeline:
         segments, _info = model.transcribe(
             audio,
             beam_size=1,
-            vad_filter=False,
+            vad_filter=self._config.vad_filter,
             language=self._config.language,
         )
         return " ".join(segment.text.strip() for segment in segments).strip()
@@ -140,6 +144,7 @@ class TranscriptionPipeline:
                     self._config.model_name,
                     device=self._config.device,
                     compute_type=self._config.compute_type,
+                    cpu_threads=self._config.cpu_threads,
                     download_root=(
                         str(self._config.model_cache_dir)
                         if self._config.model_cache_dir is not None
@@ -160,6 +165,20 @@ class TranscriptionPipeline:
             ) from exc
 
         return decode_audio(str(audio_path), sampling_rate=SAMPLE_RATE)
+
+
+def prefetch_transcription_models(model_names: list[str], model_cache_dir: Path) -> None:
+    try:
+        from faster_whisper.utils import download_model
+    except ImportError as exc:
+        raise RuntimeError(
+            "Transcription support is missing from this app build. "
+            "Please reinstall AudioTranscriber."
+        ) from exc
+
+    model_cache_dir.mkdir(parents=True, exist_ok=True)
+    for model_name in model_names:
+        download_model(model_name, cache_dir=str(model_cache_dir))
 
 
 def _friendly_model_error(error: Exception, config: TranscriptionConfig) -> str:

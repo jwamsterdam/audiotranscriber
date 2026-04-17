@@ -689,7 +689,7 @@ class RecorderStripWindow(QMainWindow):
             "Refresh transcription models",
             (
                 "Clear the local Whisper model cache?\n\n"
-                "The next transcription will download the model again. "
+                "The live and high-quality transcription models will be downloaded again. "
                 "This can help if model files are missing or outdated."
             ),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,

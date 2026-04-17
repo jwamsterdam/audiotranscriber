@@ -13,8 +13,10 @@ from audiotranscriber.pipelines.transcription import (
     DEFAULT_DEVICE,
     TranscriptionConfig,
 )
+from audiotranscriber.system_info import logical_cpu_threads, physical_cpu_cores
 
-HIGH_QUALITY_MODEL_NAME = "small"
+HIGH_QUALITY_MODEL_NAME = "h2oai/faster-whisper-large-v3-turbo"
+HIGH_QUALITY_MODEL_LABEL = "large-v3-turbo"
 HIGH_QUALITY_CHUNK_SECONDS = 15
 MP3_BITRATE = "96k"
 ProgressCallback = Callable[[int, int], None]
@@ -36,10 +38,31 @@ def high_quality_transcription_config(
         model_name=HIGH_QUALITY_MODEL_NAME,
         device=DEFAULT_DEVICE,
         compute_type=DEFAULT_COMPUTE_TYPE,
+        cpu_threads=high_quality_cpu_threads(),
         chunk_seconds=HIGH_QUALITY_CHUNK_SECONDS,
         language=language,
         model_cache_dir=model_cache_dir,
+        vad_filter=True,
     )
+
+
+def high_quality_cpu_threads() -> int:
+    physical = _physical_cpu_cores()
+    if physical <= 2:
+        return max(1, physical)
+    if physical <= 4:
+        return physical - 1
+    return 4
+
+
+def _physical_cpu_cores() -> int:
+    physical = physical_cpu_cores()
+    if physical is not None:
+        return physical
+    logical = logical_cpu_threads()
+    if logical is None:
+        return 1
+    return max(1, logical // 2)
 
 
 def export_mp3_backup(audio_path: Path, on_progress: ProgressCallback | None = None) -> Path:

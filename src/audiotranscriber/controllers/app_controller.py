@@ -3,10 +3,6 @@
 from __future__ import annotations
 
 import sys
-import ctypes
-import ctypes.wintypes
-import os
-import platform
 from dataclasses import replace
 from pathlib import Path
 from queue import Queue
@@ -17,6 +13,7 @@ from PySide6.QtCore import QObject, QSettings, QTimer, Signal
 from audiotranscriber.app_config import AppConfig
 from audiotranscriber.pipelines.post_processing import (
     HIGH_QUALITY_CHUNK_SECONDS,
+    HIGH_QUALITY_MODEL_LABEL,
     HIGH_QUALITY_MODEL_NAME,
     backup_mp3_path_for,
     export_mp3_backup,
@@ -31,12 +28,22 @@ from audiotranscriber.pipelines.recording import (
     SAMPLE_RATE,
     SAMPLE_WIDTH_BYTES,
 )
-from audiotranscriber.pipelines.transcription import TranscriptionConfig, TranscriptionPipeline
+from audiotranscriber.pipelines.transcription import (
+    TranscriptionConfig,
+    TranscriptionPipeline,
+    prefetch_transcription_models,
+)
 from audiotranscriber.state import (
     InputSource,
     RecorderState,
     RecorderStatus,
     TranscriptionLanguage,
+)
+from audiotranscriber.system_info import (
+    cpu_name,
+    installed_memory,
+    logical_cpu_threads,
+    physical_cpu_cores,
 )
 from audiotranscriber.update_checker import check_for_updates, refresh_model_cache
 
@@ -118,6 +125,9 @@ class AppController(QObject):
         self._preview_age_timer.setInterval(1000)
         self._preview_age_timer.timeout.connect(self._tick_preview_age)
 
+        if self._config.profile == "prod" and self._config.download_models_on_first_use:
+            self._start_model_cache_prepare()
+
     @property
     def state(self) -> RecorderState:
         return self._state
@@ -182,23 +192,45 @@ class AppController(QObject):
                     ("Saved device key", self._microphone_device_key or "Auto-detect"),
                     ("Saved device available", "Yes" if saved_device_available else "No"),
                     ("Detected input devices", str(len(self.microphone_devices()))),
-                    ("Recording format", f"{SAMPLE_RATE} Hz, {CHANNELS} channel, {sample_width_bits}-bit PCM"),
+                    (
+                        "Recording format",
+                        f"{SAMPLE_RATE} Hz, {CHANNELS} channel, {sample_width_bits}-bit PCM",
+                    ),
                 ],
             ),
         ]
 
     def model_diagnostics_rows(self) -> list[tuple[str, str, str]]:
         language = self._transcriber.config.language or "auto"
+        high_quality_config = high_quality_transcription_config(
+            self._transcriber.config.language,
+            self._config.model_cache_dir,
+        )
         return [
-            ("Model", self._transcriber.config.model_name, HIGH_QUALITY_MODEL_NAME),
-            ("Device", self._transcriber.config.device, self._transcriber.config.device),
+            ("Model", self._transcriber.config.model_name, HIGH_QUALITY_MODEL_LABEL),
+            ("Model ID", self._transcriber.config.model_name, HIGH_QUALITY_MODEL_NAME),
+            ("Device", self._transcriber.config.device, high_quality_config.device),
             (
                 "Compute type",
                 self._transcriber.config.compute_type,
-                self._transcriber.config.compute_type,
+                high_quality_config.compute_type,
+            ),
+            (
+                "CPU threads",
+                str(self._transcriber.config.cpu_threads),
+                str(high_quality_config.cpu_threads),
+            ),
+            (
+                "VAD filter",
+                str(self._transcriber.config.vad_filter),
+                str(high_quality_config.vad_filter),
             ),
             ("Language", language, language),
-            ("Chunk length", f"{LIVE_CHUNK_SECONDS} seconds", f"{HIGH_QUALITY_CHUNK_SECONDS} seconds"),
+            (
+                "Chunk length",
+                f"{LIVE_CHUNK_SECONDS} seconds",
+                f"{high_quality_config.chunk_seconds} seconds",
+            ),
             ("Output", "*.txt", "*.high-quality.txt"),
         ]
 
@@ -603,16 +635,25 @@ class AppController(QObject):
             preview_text=(
                 "High-quality transcript voorbereiden...\n\n"
                 "Preset: high-quality\n"
+                f"Model: {HIGH_QUALITY_MODEL_LABEL}\n"
                 "Model wordt indien nodig eenmalig gedownload.\n"
                 f"Bron:\n{target}\n\n"
                 f"Doel:\n{output_path}"
             ),
         )
         self._preview_age_timer.start()
+        high_quality_config = high_quality_transcription_config(
+            self._transcriber.config.language,
+            self._config.model_cache_dir,
+        )
         print(
             "Starting high-quality transcript: "
             f"{target} "
-            "model=small device=cpu compute_type=int8 "
+            f"model={HIGH_QUALITY_MODEL_NAME} "
+            f"device={high_quality_config.device} "
+            f"compute_type={high_quality_config.compute_type} "
+            f"cpu_threads={high_quality_config.cpu_threads} "
+            f"vad_filter={high_quality_config.vad_filter} "
             f"language={self._transcriber.config.language or 'auto'}",
             flush=True,
         )
@@ -760,13 +801,46 @@ class AppController(QObject):
         self.update_check_finished.emit(info)
 
     def _run_model_cache_refresh(self) -> None:
+        model_names = self._required_model_names()
         try:
             message = refresh_model_cache(self._config.model_cache_dir)
+            prefetch_transcription_models(model_names, self._config.model_cache_dir)
         except Exception as exc:  # noqa: BLE001
             self.model_cache_refresh_failed.emit(str(exc))
             return
 
-        self.model_cache_refresh_finished.emit(message)
+        self.model_cache_refresh_finished.emit(
+            f"{message}\n\nDownloaded models:\n" + "\n".join(model_names)
+        )
+
+    def _start_model_cache_prepare(self) -> None:
+        thread = Thread(
+            target=self._run_model_cache_prepare,
+            name="ModelCachePrepare",
+            daemon=True,
+        )
+        thread.start()
+
+    def _run_model_cache_prepare(self) -> None:
+        model_names = self._required_model_names()
+        try:
+            prefetch_transcription_models(model_names, self._config.model_cache_dir)
+        except Exception as exc:  # noqa: BLE001
+            print(f"Model cache prepare skipped: {exc}", flush=True)
+            return
+
+        print(
+            "Model cache ready: "
+            + ", ".join(model_names)
+            + f" in {self._config.model_cache_dir}",
+            flush=True,
+        )
+
+    def _required_model_names(self) -> list[str]:
+        return [
+            self._transcriber.config.model_name,
+            HIGH_QUALITY_MODEL_NAME,
+        ]
 
     def _start_live_transcription(self, audio_path: Path) -> None:
         self._transcription_cancel.clear()
@@ -1104,114 +1178,18 @@ def _display_path(path: Path | str) -> str:
 
 
 def _cpu_name() -> str:
-    if sys.platform == "win32":
-        try:
-            import winreg
-
-            with winreg.OpenKey(
-                winreg.HKEY_LOCAL_MACHINE,
-                r"HARDWARE\DESCRIPTION\System\CentralProcessor\0",
-            ) as key:
-                value, _value_type = winreg.QueryValueEx(key, "ProcessorNameString")
-                if isinstance(value, str) and value.strip():
-                    return " ".join(value.split())
-        except OSError:
-            pass
-
-    candidates = [
-        platform.processor(),
-        platform.machine(),
-    ]
-    for candidate in candidates:
-        if candidate:
-            return candidate
-    return "Unknown"
+    return cpu_name()
 
 
 def _cpu_cores() -> str:
-    if sys.platform == "win32":
-        cores = _windows_physical_core_count()
-        if cores is not None:
-            return str(cores)
-    return "Unknown"
+    cores = physical_cpu_cores()
+    return str(cores) if cores is not None else "Unknown"
 
 
 def _cpu_threads() -> str:
-    return str(os.cpu_count() or "Unknown")
+    threads = logical_cpu_threads()
+    return str(threads) if threads is not None else "Unknown"
 
 
 def _installed_memory() -> str:
-    if sys.platform == "win32":
-        return _windows_installed_memory()
-    page_size = os.sysconf("SC_PAGE_SIZE") if hasattr(os, "sysconf") else None
-    page_count = os.sysconf("SC_PHYS_PAGES") if hasattr(os, "sysconf") else None
-    if isinstance(page_size, int) and isinstance(page_count, int):
-        return _format_bytes(page_size * page_count)
-    return "Unknown"
-
-
-def _windows_installed_memory() -> str:
-    class MemoryStatus(ctypes.Structure):
-        _fields_ = [
-            ("dwLength", ctypes.c_ulong),
-            ("dwMemoryLoad", ctypes.c_ulong),
-            ("ullTotalPhys", ctypes.c_ulonglong),
-            ("ullAvailPhys", ctypes.c_ulonglong),
-            ("ullTotalPageFile", ctypes.c_ulonglong),
-            ("ullAvailPageFile", ctypes.c_ulonglong),
-            ("ullTotalVirtual", ctypes.c_ulonglong),
-            ("ullAvailVirtual", ctypes.c_ulonglong),
-            ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
-        ]
-
-    status = MemoryStatus()
-    status.dwLength = ctypes.sizeof(MemoryStatus)
-    if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
-        return _format_bytes(status.ullTotalPhys)
-    return "Unknown"
-
-
-def _windows_physical_core_count() -> int | None:
-    relation_processor_core = 0
-    error_insufficient_buffer = 122
-    ulong_ptr = ctypes.c_ulonglong if ctypes.sizeof(ctypes.c_void_p) == 8 else ctypes.c_ulong
-
-    class SystemLogicalProcessorInformation(ctypes.Structure):
-        _fields_ = [
-            ("ProcessorMask", ulong_ptr),
-            ("Relationship", ctypes.wintypes.DWORD),
-            ("Reserved", ctypes.c_byte * 16),
-        ]
-
-    length = ctypes.wintypes.DWORD(0)
-    result = ctypes.windll.kernel32.GetLogicalProcessorInformation(None, ctypes.byref(length))
-    if result:
-        return None
-    if ctypes.windll.kernel32.GetLastError() not in {0, error_insufficient_buffer}:
-        return None
-
-    buffer = ctypes.create_string_buffer(length.value)
-    result = ctypes.windll.kernel32.GetLogicalProcessorInformation(
-        ctypes.cast(buffer, ctypes.POINTER(SystemLogicalProcessorInformation)),
-        ctypes.byref(length),
-    )
-    if not result:
-        return None
-
-    entry_size = ctypes.sizeof(SystemLogicalProcessorInformation)
-    if entry_size <= 0:
-        return None
-
-    entries = length.value // entry_size
-    info_array = ctypes.cast(
-        buffer,
-        ctypes.POINTER(SystemLogicalProcessorInformation * entries),
-    ).contents
-    return sum(1 for entry in info_array if entry.Relationship == relation_processor_core)
-
-
-def _format_bytes(value: int) -> str:
-    gib = value / (1024**3)
-    if gib >= 10:
-        return f"{gib:.0f} GB"
-    return f"{gib:.1f} GB"
+    return installed_memory()

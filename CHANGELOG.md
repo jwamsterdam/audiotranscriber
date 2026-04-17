@@ -7,6 +7,9 @@ All notable changes to AudioTranscriber will be documented in this file.
 - Added a persistent `Microphone input` context-menu submenu with auto-detect and explicit input-device choices.
 - Saved the selected microphone device in user settings and used it for future microphone recordings, with auto-detect fallback when no saved device is selected.
 - Replaced the plain microphone diagnostics message with a dark settings and diagnostics dialog covering app paths, microphone input, detected devices, and transcription model settings.
+- Switched high-quality transcription from Whisper `small` to `large-v3-turbo` through the faster-whisper CTranslate2 model `h2oai/faster-whisper-large-v3-turbo`.
+- Added production startup model-cache preparation for both the live `base` model and the high-quality `large-v3-turbo` model.
+- Optimized high-quality transcription with explicit CPU thread selection based on physical cores and VAD enabled, without changing live transcription settings.
 
 ## 0.1.2 - Microphone Detection
 
