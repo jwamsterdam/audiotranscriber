@@ -11,15 +11,20 @@ from PySide6.QtCore import QObject, QSettings, QTimer, Signal
 
 from audiotranscriber.app_config import AppConfig
 from audiotranscriber.pipelines.post_processing import (
+    HIGH_QUALITY_CHUNK_SECONDS,
+    HIGH_QUALITY_MODEL_NAME,
     backup_mp3_path_for,
     export_mp3_backup,
     high_quality_transcript_path_for,
     high_quality_transcription_config,
 )
 from audiotranscriber.pipelines.recording import (
+    CHANNELS,
     LIVE_CHUNK_SECONDS,
     MicrophoneDevice,
     RecordingPipeline,
+    SAMPLE_RATE,
+    SAMPLE_WIDTH_BYTES,
 )
 from audiotranscriber.pipelines.transcription import TranscriptionConfig, TranscriptionPipeline
 from audiotranscriber.state import (
@@ -129,6 +134,52 @@ class AppController(QObject):
 
     def microphone_devices(self) -> list[MicrophoneDevice]:
         return self._recorder.list_microphone_devices()
+
+    def diagnostics_sections(self) -> list[tuple[str, list[tuple[str, str]]]]:
+        selected = "Auto-detect"
+        for device in self.microphone_devices():
+            if device.key == self._microphone_device_key:
+                selected = device.label
+                break
+
+        sample_width_bits = SAMPLE_WIDTH_BYTES * 8
+        language = self._transcriber.config.language or "auto"
+        settings_path = self._settings.fileName() or "OS default"
+
+        return [
+            (
+                "App",
+                [
+                    ("Profile", self._config.profile),
+                    ("Recordings folder", str(self._config.recordings_dir)),
+                    ("Model cache", str(self._config.model_cache_dir)),
+                    ("Settings file", settings_path),
+                ],
+            ),
+            (
+                "Microphone",
+                [
+                    ("Input mode", selected),
+                    ("Saved device key", self._microphone_device_key or "Auto-detect"),
+                    ("Detected input devices", str(len(self.microphone_devices()))),
+                    ("Recording format", f"{SAMPLE_RATE} Hz, {CHANNELS} channel, {sample_width_bits}-bit PCM"),
+                    ("Live chunk length", f"{LIVE_CHUNK_SECONDS} seconds"),
+                ],
+            ),
+            (
+                "Transcription Models",
+                [
+                    ("Live/recent transcript model", self._transcriber.config.model_name),
+                    ("Live device", self._transcriber.config.device),
+                    ("Live compute type", self._transcriber.config.compute_type),
+                    ("Live language", language),
+                    ("High-quality model", HIGH_QUALITY_MODEL_NAME),
+                    ("High-quality device", self._transcriber.config.device),
+                    ("High-quality compute type", self._transcriber.config.compute_type),
+                    ("High-quality chunk length", f"{HIGH_QUALITY_CHUNK_SECONDS} seconds"),
+                ],
+            ),
+        ]
 
     def emit_current_state(self) -> None:
         self.state_changed.emit(self._state)

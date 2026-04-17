@@ -11,7 +11,9 @@ from PySide6.QtGui import QAction, QActionGroup, QDesktopServices, QIcon
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
     QApplication,
+    QDialog,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QFileDialog,
@@ -19,6 +21,8 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QMenu,
     QProgressBar,
+    QPushButton,
+    QScrollArea,
     QTextEdit,
     QSizePolicy,
     QSpacerItem,
@@ -352,7 +356,7 @@ class RecorderStripWindow(QMainWindow):
             menu.addAction(refresh_models_action)
             menu.addSeparator()
 
-        diagnostics_action = QAction("Show microphone diagnostics", menu)
+        diagnostics_action = QAction("Show settings and diagnostics", menu)
         diagnostics_action.setEnabled(self._controller is not None)
         diagnostics_action.triggered.connect(self._show_microphone_diagnostics)
         menu.addAction(diagnostics_action)
@@ -700,11 +704,8 @@ class RecorderStripWindow(QMainWindow):
         if self._controller is None:
             return
 
-        QMessageBox.information(
-            self,
-            "Microphone diagnostics",
-            self._controller.microphone_diagnostics(),
-        )
+        dialog = DiagnosticsDialog(self._controller, self)
+        dialog.exec()
 
     def _handle_update_check_finished(self, info: UpdateInfo) -> None:
         if info.error:
@@ -927,3 +928,220 @@ class RecorderStripWindow(QMainWindow):
 def _resource_path(relative_path: str) -> Path:
     base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
     return base / relative_path
+
+
+class DiagnosticsDialog(QDialog):
+    """Dark app diagnostics dialog for audio, model, and runtime settings."""
+
+    def __init__(self, controller: AppController, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._controller = controller
+        self.setWindowTitle("AudioTranscriber diagnostics")
+        self.setMinimumSize(620, 520)
+        self.resize(720, 620)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        frame = QFrame(self)
+        frame.setObjectName("diagnosticsRoot")
+        frame_layout = QVBoxLayout(frame)
+        frame_layout.setContentsMargins(24, 22, 24, 20)
+        frame_layout.setSpacing(16)
+
+        header = QLabel("Settings and diagnostics", frame)
+        header.setObjectName("diagnosticsTitle")
+        subtitle = QLabel(
+            "Audio input, model settings, folders, and detected microphone devices.",
+            frame,
+        )
+        subtitle.setObjectName("diagnosticsSubtitle")
+        subtitle.setWordWrap(True)
+        frame_layout.addWidget(header)
+        frame_layout.addWidget(subtitle)
+
+        scroll_area = QScrollArea(frame)
+        scroll_area.setObjectName("diagnosticsScroll")
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        scroll_content = QWidget(scroll_area)
+        scroll_layout = QVBoxLayout(scroll_content)
+        scroll_layout.setContentsMargins(0, 0, 0, 0)
+        scroll_layout.setSpacing(12)
+
+        for title, rows in controller.diagnostics_sections():
+            scroll_layout.addWidget(self._section(title, rows, scroll_content))
+        scroll_layout.addWidget(
+            self._section(
+                "Detected Input Devices",
+                self._microphone_device_rows(),
+                scroll_content,
+            )
+        )
+        scroll_layout.addStretch(1)
+        scroll_area.setWidget(scroll_content)
+        frame_layout.addWidget(scroll_area, 1)
+
+        button_row = QHBoxLayout()
+        button_row.addStretch(1)
+        copy_button = QPushButton("Copy diagnostics", frame)
+        copy_button.clicked.connect(self._copy_diagnostics)
+        close_button = QPushButton("Close", frame)
+        close_button.clicked.connect(self.accept)
+        button_row.addWidget(copy_button)
+        button_row.addWidget(close_button)
+        frame_layout.addLayout(button_row)
+
+        root.addWidget(frame)
+        self._apply_styles()
+
+    def _section(
+        self,
+        title: str,
+        rows: list[tuple[str, str]],
+        parent: QWidget,
+    ) -> QFrame:
+        section = QFrame(parent)
+        section.setObjectName("diagnosticsSection")
+        layout = QVBoxLayout(section)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(10)
+
+        heading = QLabel(title, section)
+        heading.setObjectName("diagnosticsSectionTitle")
+        layout.addWidget(heading)
+
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(16)
+        grid.setVerticalSpacing(8)
+        grid.setColumnStretch(0, 0)
+        grid.setColumnStretch(1, 1)
+        for row_index, (label, value) in enumerate(rows):
+            key_label = QLabel(label, section)
+            key_label.setObjectName("diagnosticsKey")
+            value_label = QLabel(value, section)
+            value_label.setObjectName("diagnosticsValue")
+            value_label.setTextInteractionFlags(
+                Qt.TextInteractionFlag.TextSelectableByMouse
+            )
+            value_label.setWordWrap(True)
+            grid.addWidget(key_label, row_index, 0)
+            grid.addWidget(value_label, row_index, 1)
+        layout.addLayout(grid)
+        return section
+
+    def _microphone_device_rows(self) -> list[tuple[str, str]]:
+        devices = self._controller.microphone_devices()
+        if not devices:
+            return [("Devices", "No input devices found")]
+
+        selected_key = self._controller.state.selected_microphone_device_key
+        rows = []
+        for device in devices:
+            markers = []
+            if device.key == selected_key:
+                markers.append("selected")
+            marker = f" ({', '.join(markers)})" if markers else ""
+            rows.append(
+                (
+                    f"{device.index}: {device.name}{marker}",
+                    f"{device.host_api}, {device.max_input_channels} input channel(s)",
+                )
+            )
+        return rows
+
+    def _copy_diagnostics(self) -> None:
+        sections = []
+        for title, rows in self._controller.diagnostics_sections():
+            sections.append(title)
+            sections.extend(f"{label}: {value}" for label, value in rows)
+            sections.append("")
+        sections.append("Microphone diagnostics")
+        sections.append(self._controller.microphone_diagnostics())
+        QApplication.clipboard().setText("\n".join(sections).strip())
+
+    def _apply_styles(self) -> None:
+        self.setStyleSheet(
+            """
+            QFrame#diagnosticsRoot {
+                background: #151a1d;
+                color: #f7f8f8;
+                font-family: "Segoe UI", "Inter", "Helvetica Neue", Arial, sans-serif;
+            }
+
+            QLabel#diagnosticsTitle {
+                color: #ffffff;
+                font-size: 22px;
+                font-weight: 800;
+            }
+
+            QLabel#diagnosticsSubtitle {
+                color: #c8cdd0;
+                font-size: 13px;
+            }
+
+            QScrollArea#diagnosticsScroll {
+                background: transparent;
+                border: none;
+            }
+
+            QScrollArea#diagnosticsScroll QWidget {
+                background: transparent;
+            }
+
+            QFrame#diagnosticsSection {
+                background: rgba(255, 255, 255, 0.055);
+                border: 1px solid rgba(255, 255, 255, 0.10);
+                border-radius: 8px;
+            }
+
+            QLabel#diagnosticsSectionTitle {
+                color: #ffffff;
+                font-size: 14px;
+                font-weight: 800;
+            }
+
+            QLabel#diagnosticsKey {
+                color: #9da5a9;
+                font-size: 12px;
+                font-weight: 700;
+            }
+
+            QLabel#diagnosticsValue {
+                color: #f7f8f8;
+                font-size: 12px;
+            }
+
+            QPushButton {
+                background: rgba(255, 255, 255, 0.08);
+                color: #f7f8f8;
+                border: 1px solid rgba(255, 255, 255, 0.14);
+                border-radius: 8px;
+                padding: 8px 14px;
+                font-size: 12px;
+                font-weight: 700;
+            }
+
+            QPushButton:hover {
+                background: rgba(255, 255, 255, 0.14);
+            }
+
+            QScrollBar:vertical {
+                background: transparent;
+                width: 8px;
+                margin: 0;
+            }
+
+            QScrollBar::handle:vertical {
+                background: rgba(255, 255, 255, 0.24);
+                border-radius: 4px;
+                min-height: 28px;
+            }
+
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {
+                height: 0;
+            }
+            """
+        )

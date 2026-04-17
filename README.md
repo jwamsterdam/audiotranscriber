@@ -20,7 +20,7 @@ AudioTranscriber records WAV audio locally, creates chunked transcripts with
   - explicit input-device choices
   - remembered device selection in user settings
   - fallback to auto-detect when no device is selected
-- Production microphone diagnostics from the context menu.
+- Settings and diagnostics screen with microphone devices, app paths, and model settings.
 - Near-real-time transcript preview from completed recording chunks.
 - Incremental `.txt` transcript saving next to the recorded audio.
 - Language selector on the strip: `AUTO`, `NL`, or `EN`.
@@ -96,7 +96,7 @@ AUDIOTRANSCRIBER_PROFILE=prod
 Prod profile:
 
 - Uses microphone recording only.
-- Shows microphone device selection and diagnostics.
+- Shows microphone device selection plus the settings and diagnostics screen.
 - Hides test tone and dev sample actions.
 - Stores recordings in `Documents/AudioTranscriber/Recordings`.
 - Stores models in the OS app data folder.

@@ -6,6 +6,7 @@ All notable changes to AudioTranscriber will be documented in this file.
 
 - Added a persistent `Microphone input` context-menu submenu with auto-detect and explicit input-device choices.
 - Saved the selected microphone device in user settings and used it for future microphone recordings, with auto-detect fallback when no saved device is selected.
+- Replaced the plain microphone diagnostics message with a dark settings and diagnostics dialog covering app paths, microphone input, detected devices, and transcription model settings.
 
 ## 0.1.2 - Microphone Detection
 
