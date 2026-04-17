@@ -950,7 +950,10 @@ class DiagnosticsDialog(QDialog):
     def __init__(self, controller: AppController, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._controller = controller
+        self._drag_position = None
         self.setWindowTitle("AudioTranscriber diagnostics")
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setMinimumSize(620, 520)
         self.resize(720, 620)
 
@@ -961,18 +964,26 @@ class DiagnosticsDialog(QDialog):
         frame = QFrame(self)
         frame.setObjectName("diagnosticsRoot")
         frame_layout = QVBoxLayout(frame)
-        frame_layout.setContentsMargins(24, 22, 24, 20)
+        frame_layout.setContentsMargins(24, 16, 24, 20)
         frame_layout.setSpacing(16)
 
+        header_row = QHBoxLayout()
+        header_row.setSpacing(12)
         header = QLabel("Settings and diagnostics", frame)
         header.setObjectName("diagnosticsTitle")
+        close_header_button = QPushButton("Close", frame)
+        close_header_button.setObjectName("diagnosticsHeaderClose")
+        close_header_button.clicked.connect(self.accept)
+        header_row.addWidget(header)
+        header_row.addStretch(1)
+        header_row.addWidget(close_header_button)
         subtitle = QLabel(
             "Audio input, model settings, folders, and detected microphone devices.",
             frame,
         )
         subtitle.setObjectName("diagnosticsSubtitle")
         subtitle.setWordWrap(True)
-        frame_layout.addWidget(header)
+        frame_layout.addLayout(header_row)
         frame_layout.addWidget(subtitle)
 
         scroll_area = QScrollArea(frame)
@@ -1015,6 +1026,27 @@ class DiagnosticsDialog(QDialog):
 
         root.addWidget(frame)
         self._apply_styles()
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton and event.position().y() <= 72:
+            self._drag_position = (
+                event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            )
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        if event.buttons() == Qt.MouseButton.LeftButton and self._drag_position is not None:
+            self.move(event.globalPosition().toPoint() - self._drag_position)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_position = None
+        super().mouseReleaseEvent(event)
 
     def _section(
         self,
@@ -1174,6 +1206,8 @@ class DiagnosticsDialog(QDialog):
                 background: #151a1d;
                 color: #f7f8f8;
                 font-family: "Segoe UI", "Inter", "Helvetica Neue", Arial, sans-serif;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 10px;
             }
 
             QLabel#diagnosticsTitle {
@@ -1248,6 +1282,10 @@ class DiagnosticsDialog(QDialog):
 
             QPushButton:hover {
                 background: rgba(255, 255, 255, 0.14);
+            }
+
+            QPushButton#diagnosticsHeaderClose {
+                padding: 6px 12px;
             }
 
             QScrollBar:vertical {
