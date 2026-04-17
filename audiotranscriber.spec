@@ -5,6 +5,9 @@ from PyInstaller.utils.hooks import collect_all
 block_cipher = None
 
 imageio_datas, imageio_binaries, imageio_hiddenimports = collect_all("imageio_ffmpeg")
+faster_whisper_datas, faster_whisper_binaries, faster_whisper_hiddenimports = collect_all(
+    "faster_whisper"
+)
 app_datas = [
     ("src/audiotranscriber/assets/app.ico", "audiotranscriber/assets"),
 ]
@@ -12,9 +15,9 @@ app_datas = [
 a = Analysis(
     ["src/audiotranscriber/main.py"],
     pathex=["src"],
-    binaries=imageio_binaries,
-    datas=imageio_datas + app_datas,
-    hiddenimports=imageio_hiddenimports,
+    binaries=imageio_binaries + faster_whisper_binaries,
+    datas=imageio_datas + faster_whisper_datas + app_datas,
+    hiddenimports=imageio_hiddenimports + faster_whisper_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

@@ -10,7 +10,7 @@ from pathlib import Path
 from audiotranscriber.state import InputSource
 
 APP_NAME = "AudioTranscriber"
-APP_VERSION = "0.1.4"
+APP_VERSION = "0.1.5"
 DEFAULT_UPDATE_REPO = "jwamsterdam/audiotranscriber"
 PROFILE_ENV_VAR = "AUDIOTRANSCRIBER_PROFILE"
 UPDATE_URL_ENV_VAR = "AUDIOTRANSCRIBER_UPDATE_URL"

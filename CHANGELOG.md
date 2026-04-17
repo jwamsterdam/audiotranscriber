@@ -2,6 +2,10 @@
 
 All notable changes to AudioTranscriber will be documented in this file.
 
+## 0.1.5 - High-Quality VAD Packaging Fix
+
+- Included faster-whisper assets in the Windows build so high-quality transcription with VAD can load `silero_vad_v6.onnx` from packaged installs.
+
 ## 0.1.4 - Diagnostics and High-Quality Transcription Polish
 
 - Added a persistent `Microphone input` context-menu submenu with auto-detect and explicit input-device choices.
