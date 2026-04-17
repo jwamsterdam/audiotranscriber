@@ -98,7 +98,7 @@ def refresh_model_cache(model_cache_dir: Path) -> str:
         model_cache_dir.mkdir(parents=True, exist_ok=True)
         return (
             "No cached transcription models were found yet. "
-            "The models will download on the next transcription or app start."
+            "The model will download on the next transcription."
         )
 
     try:
@@ -110,7 +110,7 @@ def refresh_model_cache(model_cache_dir: Path) -> str:
             "and try again. Windows may still be locking model files."
         ) from exc
 
-    return "Transcription model cache cleared."
+    return "Transcription model cache cleared. The model will download on the next transcription."
 
 
 def _clean_version(version: str) -> str:

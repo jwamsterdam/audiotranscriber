@@ -166,21 +166,6 @@ class TranscriptionPipeline:
 
         return decode_audio(str(audio_path), sampling_rate=SAMPLE_RATE)
 
-
-def prefetch_transcription_models(model_names: list[str], model_cache_dir: Path) -> None:
-    try:
-        from faster_whisper.utils import download_model
-    except ImportError as exc:
-        raise RuntimeError(
-            "Transcription support is missing from this app build. "
-            "Please reinstall AudioTranscriber."
-        ) from exc
-
-    model_cache_dir.mkdir(parents=True, exist_ok=True)
-    for model_name in model_names:
-        download_model(model_name, cache_dir=str(model_cache_dir))
-
-
 def _friendly_model_error(error: Exception, config: TranscriptionConfig) -> str:
     detail = str(error).strip()
     lower_detail = detail.lower()

@@ -29,7 +29,7 @@ AudioTranscriber records WAV audio locally, creates chunked transcripts with
   - `WAV to MP3 Backup` creates `*.backup.mp3`.
   - `WAV to High Quality Transcript` creates `*.high-quality.txt`.
 - GitHub Releases update check in production builds.
-- Model cache refresh action for clearing and re-downloading local Whisper model files.
+- Model cache refresh action for clearing local Whisper model files.
 
 Development builds also expose test tools:
 
@@ -64,8 +64,7 @@ transcription pass after stop.
 High-quality transcription uses:
 
 ```text
-model=large-v3-turbo
-model_id=h2oai/faster-whisper-large-v3-turbo
+model=small
 device=cpu
 compute_type=int8
 cpu_threads=physical-core formula, capped at 4
@@ -103,7 +102,7 @@ Prod profile:
 - Hides test tone and dev sample actions.
 - Stores recordings in `Documents/AudioTranscriber/Recordings`.
 - Stores models in the OS app data folder.
-- Prepares the `base` and `large-v3-turbo` transcription models in the model cache on first production launch.
+- Downloads transcription models on first use.
 - Checks GitHub Releases for updates.
 - Used by frozen/package builds unless the environment variable overrides it.
 

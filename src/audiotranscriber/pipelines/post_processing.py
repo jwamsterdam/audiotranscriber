@@ -15,8 +15,8 @@ from audiotranscriber.pipelines.transcription import (
 )
 from audiotranscriber.system_info import logical_cpu_threads, physical_cpu_cores
 
-HIGH_QUALITY_MODEL_NAME = "h2oai/faster-whisper-large-v3-turbo"
-HIGH_QUALITY_MODEL_LABEL = "large-v3-turbo"
+HIGH_QUALITY_MODEL_NAME = "small"
+HIGH_QUALITY_MODEL_LABEL = "small"
 HIGH_QUALITY_CHUNK_SECONDS = 15
 MP3_BITRATE = "96k"
 ProgressCallback = Callable[[int, int], None]

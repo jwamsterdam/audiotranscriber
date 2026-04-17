@@ -31,7 +31,6 @@ from audiotranscriber.pipelines.recording import (
 from audiotranscriber.pipelines.transcription import (
     TranscriptionConfig,
     TranscriptionPipeline,
-    prefetch_transcription_models,
 )
 from audiotranscriber.state import (
     InputSource,
@@ -125,9 +124,6 @@ class AppController(QObject):
         self._preview_age_timer.setInterval(1000)
         self._preview_age_timer.timeout.connect(self._tick_preview_age)
 
-        if self._config.profile == "prod" and self._config.download_models_on_first_use:
-            self._start_model_cache_prepare()
-
     @property
     def state(self) -> RecorderState:
         return self._state
@@ -208,7 +204,6 @@ class AppController(QObject):
         )
         return [
             ("Model", self._transcriber.config.model_name, HIGH_QUALITY_MODEL_LABEL),
-            ("Model ID", self._transcriber.config.model_name, HIGH_QUALITY_MODEL_NAME),
             ("Device", self._transcriber.config.device, high_quality_config.device),
             (
                 "Compute type",
@@ -801,46 +796,13 @@ class AppController(QObject):
         self.update_check_finished.emit(info)
 
     def _run_model_cache_refresh(self) -> None:
-        model_names = self._required_model_names()
         try:
             message = refresh_model_cache(self._config.model_cache_dir)
-            prefetch_transcription_models(model_names, self._config.model_cache_dir)
         except Exception as exc:  # noqa: BLE001
             self.model_cache_refresh_failed.emit(str(exc))
             return
 
-        self.model_cache_refresh_finished.emit(
-            f"{message}\n\nDownloaded models:\n" + "\n".join(model_names)
-        )
-
-    def _start_model_cache_prepare(self) -> None:
-        thread = Thread(
-            target=self._run_model_cache_prepare,
-            name="ModelCachePrepare",
-            daemon=True,
-        )
-        thread.start()
-
-    def _run_model_cache_prepare(self) -> None:
-        model_names = self._required_model_names()
-        try:
-            prefetch_transcription_models(model_names, self._config.model_cache_dir)
-        except Exception as exc:  # noqa: BLE001
-            print(f"Model cache prepare skipped: {exc}", flush=True)
-            return
-
-        print(
-            "Model cache ready: "
-            + ", ".join(model_names)
-            + f" in {self._config.model_cache_dir}",
-            flush=True,
-        )
-
-    def _required_model_names(self) -> list[str]:
-        return [
-            self._transcriber.config.model_name,
-            HIGH_QUALITY_MODEL_NAME,
-        ]
+        self.model_cache_refresh_finished.emit(message)
 
     def _start_live_transcription(self, audio_path: Path) -> None:
         self._transcription_cancel.clear()
