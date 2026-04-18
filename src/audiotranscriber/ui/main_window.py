@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt
 from PySide6.QtCore import QUrl
 from PySide6.QtGui import QAction, QActionGroup, QDesktopServices, QIcon
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
@@ -50,7 +50,8 @@ from audiotranscriber.ui.widgets import (
     WaveformWidget,
 )
 
-DEFAULT_WIDTH = 780
+COLLAPSED_WIDTH = 560
+EXPANDED_WIDTH = 780
 SNAP_TOP_DISTANCE = 18
 UNSNAP_PULL_DISTANCE = 34
 
@@ -65,6 +66,8 @@ class RecorderStripWindow(QMainWindow):
         self._drag_position = None
         self._snapped_to_top = False
         self._snap_screen_top = 0
+        self._size_animation: QPropertyAnimation | None = None
+        self._panel_animation: QPropertyAnimation | None = None
         self._audio_output = QAudioOutput(self)
         self._audio_output.setVolume(0.8)
         self._media_player = QMediaPlayer(self)
@@ -78,9 +81,9 @@ class RecorderStripWindow(QMainWindow):
             | Qt.WindowType.WindowStaysOnTopHint
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setMinimumWidth(680)
+        self.setMinimumWidth(COLLAPSED_WIDTH)
         self.setMaximumWidth(1040)
-        self.resize(DEFAULT_WIDTH, 64)
+        self.resize(COLLAPSED_WIDTH, 64)
         self.setFixedHeight(64)
 
         root = QWidget(self)
@@ -93,12 +96,15 @@ class RecorderStripWindow(QMainWindow):
         self.strip.setObjectName("strip")
         self.strip.setFixedHeight(64)
         strip_layout = QHBoxLayout(self.strip)
-        strip_layout.setContentsMargins(22, 6, 18, 6)
-        strip_layout.setSpacing(12)
+        strip_layout.setContentsMargins(20, 4, 18, 4)
+        strip_layout.setSpacing(10)
 
         self.waveform = WaveformWidget(self.strip)
+        self.waveform.set_compact(True)
         self.timer_label = QLabel("00:00:00", self.strip)
         self.timer_label.setObjectName("timerLabel")
+        self.timer_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.timer_label.setFixedWidth(84)
         self.language_button = QToolButton(self.strip)
         self.language_button.setObjectName("languageButton")
         self.language_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
@@ -133,14 +139,14 @@ class RecorderStripWindow(QMainWindow):
         separator.setFixedWidth(1)
         separator.setFixedHeight(30)
 
-        strip_layout.addWidget(self.waveform, 1)
-        strip_layout.addWidget(self.timer_label)
-        strip_layout.addWidget(self.language_button)
-        strip_layout.addWidget(separator)
-        strip_layout.addWidget(self.stop_button)
-        strip_layout.addWidget(self.pause_button)
-        strip_layout.addWidget(self.record_button)
-        strip_layout.addWidget(self.expand_button)
+        strip_layout.addWidget(self.waveform, 1, Qt.AlignmentFlag.AlignVCenter)
+        strip_layout.addWidget(self.timer_label, 0, Qt.AlignmentFlag.AlignVCenter)
+        strip_layout.addWidget(self.language_button, 0, Qt.AlignmentFlag.AlignVCenter)
+        strip_layout.addWidget(separator, 0, Qt.AlignmentFlag.AlignVCenter)
+        strip_layout.addWidget(self.stop_button, 0, Qt.AlignmentFlag.AlignVCenter)
+        strip_layout.addWidget(self.pause_button, 0, Qt.AlignmentFlag.AlignVCenter)
+        strip_layout.addWidget(self.record_button, 0, Qt.AlignmentFlag.AlignVCenter)
+        strip_layout.addWidget(self.expand_button, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self.transcript_panel = QFrame(root)
         self.transcript_panel.setObjectName("transcriptPanel")
@@ -223,8 +229,12 @@ class RecorderStripWindow(QMainWindow):
         self.strip.style().polish(self.strip)
 
         panel_target = self._expanded_panel_height() if state.transcript_open else 0
+        width_target = EXPANDED_WIDTH if state.transcript_open else COLLAPSED_WIDTH
+        self.waveform.set_compact(not state.transcript_open)
         if self.transcript_panel.maximumHeight() != panel_target:
-            self._animate_panel_height(panel_target)
+            self._animate_layout(panel_target, width_target)
+        elif self.width() != width_target:
+            self._animate_window_width(width_target)
 
         if state.status == RecorderStatus.RECORDING:
             self.progress_bar.hide()
@@ -532,6 +542,8 @@ class RecorderStripWindow(QMainWindow):
             }
 
             QFrame#strip[expanded="true"] {
+                border-top-left-radius: 10px;
+                border-top-right-radius: 10px;
                 border-bottom-left-radius: 0;
                 border-bottom-right-radius: 0;
                 margin-bottom: 0;
@@ -545,7 +557,8 @@ class RecorderStripWindow(QMainWindow):
                 color: #ffffff;
                 font-size: 15px;
                 font-weight: 500;
-                min-width: 78px;
+                min-width: 84px;
+                max-width: 84px;
             }
 
             QToolButton#languageButton {
@@ -587,8 +600,8 @@ class RecorderStripWindow(QMainWindow):
             QFrame#transcriptPanel {
                 background: #151a1d;
                 border-top: none;
-                border-bottom-left-radius: 24px;
-                border-bottom-right-radius: 24px;
+                border-bottom-left-radius: 10px;
+                border-bottom-right-radius: 10px;
                 margin-top: -1px;
             }
 
@@ -934,10 +947,38 @@ class RecorderStripWindow(QMainWindow):
         if was_at_bottom:
             scrollbar.setValue(scrollbar.maximum())
 
+    def _animate_layout(self, target_height: int, target_width: int) -> None:
+        self._animate_window_width(target_width)
+        self._animate_panel_height(target_height)
+
+    def _animate_window_width(self, target_width: int) -> None:
+        if self.width() == target_width:
+            return
+
+        start_geometry = self.geometry()
+        end_geometry = start_geometry
+        end_geometry.setWidth(target_width)
+        self._size_animation = QPropertyAnimation(self, b"geometry", self)
+        self._size_animation.setDuration(150)
+        self._size_animation.setStartValue(start_geometry)
+        self._size_animation.setEndValue(end_geometry)
+        self._size_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._size_animation.start()
+
     def _animate_panel_height(self, target_height: int) -> None:
         anchor = self.frameGeometry().topLeft()
-        self.transcript_panel.setMaximumHeight(target_height)
-        self._sync_window_height(target_height, anchor)
+        start_height = self.transcript_panel.maximumHeight()
+        animation = QPropertyAnimation(self.transcript_panel, b"maximumHeight", self)
+        animation.setDuration(150)
+        animation.setStartValue(start_height)
+        animation.setEndValue(target_height)
+        animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        animation.valueChanged.connect(
+            lambda value: self._sync_window_height(int(value), anchor)
+        )
+        animation.finished.connect(lambda: self._sync_window_height(target_height, anchor))
+        self._panel_animation = animation
+        animation.start()
 
     def _sync_window_height(self, panel_height: int, anchor) -> None:  # noqa: ANN001
         overlap = 1 if panel_height > 0 else 0

@@ -151,12 +151,25 @@ class WaveformWidget(QWidget):
         self._status = RecorderStatus.IDLE
         self._phase = 0.0
         self._level = 0.0
+        self._compact = False
         self._timer = QTimer(self)
         self._timer.setInterval(90)
         self._timer.timeout.connect(self._advance)
         self.setMinimumWidth(220)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setFixedHeight(38)
+
+    def set_compact(self, compact: bool) -> None:
+        self._compact = compact
+        if compact:
+            self.setFixedWidth(72)
+            self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        else:
+            self.setMinimumWidth(220)
+            self.setMaximumWidth(16777215)
+            self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.updateGeometry()
+        self.update()
 
     def set_status(self, status: RecorderStatus) -> None:
         self._status = status
@@ -181,10 +194,12 @@ class WaveformWidget(QWidget):
 
         width = self.width()
         center_y = self.height() / 2
-        gap = 8
+        gap = 7 if self._compact else 8
         bar_width = 4
         start_x = 2
-        bars = max(16, min(44, int((width - start_x) / gap)))
+        bars = 7 if self._compact else max(16, min(44, int((width - start_x) / gap)))
+        if self._compact:
+            start_x = max(2, (width - ((bars - 1) * gap + bar_width)) / 2)
 
         for index in range(bars):
             x = start_x + index * gap
@@ -193,8 +208,9 @@ class WaveformWidget(QWidget):
 
             seed = math.sin(index * 1.7) * 0.5 + math.sin(index * 0.43) * 0.5
             motion = math.sin(self._phase + index * 0.62)
-            level_boost = 0.25 + self._level * 1.35
-            height = 7 + abs(seed + motion * 0.55) * 15 * level_boost
+            level_boost = 0.22 + self._level * 1.0
+            amplitude = 10 if self._compact else 9
+            height = 6 + abs(seed + motion * 0.45) * amplitude * level_boost
 
             color = self._bar_color(index, bars)
             if self._status in {RecorderStatus.IDLE, RecorderStatus.PAUSED}:
