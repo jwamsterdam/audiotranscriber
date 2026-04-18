@@ -34,6 +34,7 @@ from audiotranscriber.pipelines.transcription import (
 )
 from audiotranscriber.state import (
     InputSource,
+    PreviewKind,
     RecorderState,
     RecorderStatus,
     TranscriptionLanguage,
@@ -273,10 +274,11 @@ class AppController(QObject):
             self._set_state(
                 input_source=source,
                 error_message="Geen dev sample geselecteerd.",
+                preview_kind=PreviewKind.ERROR,
                 transcript_open=True,
                 preview_text=(
-                    "Dev sample input geselecteerd, maar er is nog geen bestand gekozen.\n\n"
-                    "Gebruik rechtermuisknop > Select dev sample."
+                    "Dev sample-invoer geselecteerd, maar er is nog geen bestand gekozen.\n\n"
+                    "Gebruik rechtermuisknop > Selecteer dev sample."
                 ),
             )
             return
@@ -318,6 +320,7 @@ class AppController(QObject):
             self._set_state(
                 input_source=InputSource.MICROPHONE,
                 error_message="Microfooninvoer niet gevonden.",
+                preview_kind=PreviewKind.ERROR,
                 transcript_open=True,
                 preview_text=(
                     "Deze microfooninvoer is niet meer beschikbaar. "
@@ -367,6 +370,7 @@ class AppController(QObject):
         if not resolved.exists():
             self._set_state(
                 error_message="Dev sample bestaat niet.",
+                preview_kind=PreviewKind.ERROR,
                 preview_text=f"Dev sample niet gevonden:\n{resolved}",
                 transcript_open=True,
             )
@@ -379,7 +383,7 @@ class AppController(QObject):
             preview_text=(
                 "Dev sample geselecteerd:\n"
                 f"{resolved}\n\n"
-                "Kies 'Use dev sample input' om dit bestand via de rode opnameknop "
+                "Kies 'Gebruik dev sample-invoer' om dit bestand via de rode opnameknop "
                 "op te nemen en daarna automatisch te transcriberen."
             ),
         )
@@ -420,6 +424,7 @@ class AppController(QObject):
                 status=RecorderStatus.IDLE,
                 audio_level=0.0,
                 error_message=error,
+                preview_kind=PreviewKind.ERROR,
                 preview_text=f"Opname kon niet starten:\n{error}",
                 transcript_open=True,
             )
@@ -506,6 +511,7 @@ class AppController(QObject):
         if target is None:
             self._set_state(
                 error_message="Geen audio gekozen voor transcriptie.",
+                preview_kind=PreviewKind.ERROR,
                 transcript_open=True,
                 preview_text=(
                     "Geen audio gekozen. Neem eerst iets op of selecteer een dev sample."
@@ -564,8 +570,9 @@ class AppController(QObject):
         if not target.exists():
             self._set_state(
                 error_message="Geen opname beschikbaar voor MP3 export.",
+                preview_kind=PreviewKind.ERROR,
                 transcript_open=True,
-                preview_text=f"WAV bestand niet gevonden:\n{target}",
+                preview_text=f"WAV-bestand niet gevonden:\n{target}",
             )
             return
 
@@ -581,7 +588,7 @@ class AppController(QObject):
             processing_label="MP3 exporteren...",
             processing_progress_text="0%",
             preview_text=(
-                "MP3 backup maken...\n\n"
+                "MP3-back-up maken...\n\n"
                 f"Bron:\n{target}\n\n"
                 f"Doel:\n{output_path}"
             ),
@@ -609,8 +616,9 @@ class AppController(QObject):
         if not target.exists():
             self._set_state(
                 error_message="Geen opname beschikbaar voor high-quality transcript.",
+                preview_kind=PreviewKind.ERROR,
                 transcript_open=True,
-                preview_text=f"WAV bestand niet gevonden:\n{target}",
+                preview_text=f"WAV-bestand niet gevonden:\n{target}",
             )
             return
 
@@ -625,11 +633,11 @@ class AppController(QObject):
             transcript_output_path=str(output_path),
             transcription_current_chunk=0,
             transcription_total_chunks=0,
-            processing_label="High quality transcript...",
+            processing_label="Transcriptie in hoge kwaliteit...",
             processing_progress_text=None,
             preview_text=(
-                "High-quality transcript voorbereiden...\n\n"
-                "Preset: high-quality\n"
+                "Transcriptie in hoge kwaliteit voorbereiden...\n\n"
+                "Preset: hoge kwaliteit\n"
                 f"Model: {HIGH_QUALITY_MODEL_LABEL}\n"
                 "Model wordt indien nodig eenmalig gedownload.\n"
                 f"Bron:\n{target}\n\n"
@@ -685,7 +693,7 @@ class AppController(QObject):
             processing_label="Transcriptie stoppen...",
             processing_progress_text=None,
             preview_text=(
-                f"{self._state.preview_text}\n\nTranscriptie stoppen... "
+                f"{self._state.preview_text}\n\nTranscriptie wordt gestopt... "
                 "De huidige chunk wordt nog afgerond."
             ),
         )
@@ -951,6 +959,7 @@ class AppController(QObject):
             transcript_output_path=transcript_path,
             transcription_current_chunk=current_chunk,
             transcription_total_chunks=total_chunks,
+            preview_kind=PreviewKind.TRANSCRIPT if text else PreviewKind.SYSTEM,
             preview_text=(
                 text
                 or (
@@ -974,10 +983,11 @@ class AppController(QObject):
             transcript_output_path=transcript_path,
             transcription_current_chunk=current_chunk,
             transcription_total_chunks=total_chunks,
+            preview_kind=PreviewKind.TRANSCRIPT if text else PreviewKind.SYSTEM,
             preview_text=(
                 text
                 or (
-                    f"Live transcript chunk {current_chunk}/{total_chunks}...\n\n"
+                    f"Live transcriptie chunk {current_chunk}/{total_chunks}...\n\n"
                     "Nog geen spraak herkend in de verwerkte audio."
                 )
             ),
@@ -998,6 +1008,7 @@ class AppController(QObject):
             processing_label=None,
             processing_progress_text=None,
             error_message=error,
+            preview_kind=PreviewKind.ERROR,
             preview_text=f"Opname kon niet starten:\n{error}",
             transcript_open=True,
         )
@@ -1014,14 +1025,11 @@ class AppController(QObject):
 
         if saved_text:
             text = saved_text
-
-        if not text.strip() or "Nog geen spraak herkend" in text:
+        elif not text.strip() or "Nog geen spraak herkend" in text:
             text = (
                 "Transcriptie voltooid, maar er is geen spraak herkend in deze audio.\n\n"
                 f"Transcript opgeslagen:\n{transcript_path}"
             )
-        elif text.strip():
-            text = f"{text}\n\nTranscript opgeslagen:\n{transcript_path}"
         else:
             text = f"Transcript opgeslagen:\n{transcript_path}"
         self._set_state(
@@ -1033,6 +1041,11 @@ class AppController(QObject):
             transcription_total_chunks=0,
             processing_label=None,
             processing_progress_text=None,
+            preview_kind=(
+                PreviewKind.SYSTEM
+                if not saved_text or "Nog geen spraak herkend" in text
+                else PreviewKind.TRANSCRIPT
+            ),
             preview_text=text,
         )
 
@@ -1048,6 +1061,7 @@ class AppController(QObject):
             processing_label=None,
             processing_progress_text=None,
             error_message=error,
+            preview_kind=PreviewKind.ERROR,
             preview_text=f"Transcriptie mislukt:\n{error}",
             transcript_open=True,
         )
@@ -1064,6 +1078,7 @@ class AppController(QObject):
             transcription_total_chunks=0,
             processing_label=None,
             processing_progress_text=None,
+            preview_kind=PreviewKind.SYSTEM,
             preview_text=(
                 f"{self._state.preview_text}\n\nTranscriptie gestopt. "
                 f"Gedeeltelijke tekst opgeslagen:\n{transcript_path}"
@@ -1096,6 +1111,7 @@ class AppController(QObject):
             processing_label=None,
             processing_progress_text=None,
             error_message=None,
+            preview_kind=PreviewKind.SYSTEM,
             preview_text=f"{label}:\n{output_path}",
             transcript_open=True,
         )
@@ -1112,7 +1128,8 @@ class AppController(QObject):
             processing_label=None,
             processing_progress_text=None,
             error_message=error,
-            preview_text=f"Post-processing mislukt:\n{error}",
+            preview_kind=PreviewKind.ERROR,
+            preview_text=f"Verwerking mislukt:\n{error}",
             transcript_open=True,
         )
 
@@ -1122,6 +1139,10 @@ class AppController(QObject):
         return None
 
     def _set_state(self, **changes: object) -> None:
+        if "preview_text" in changes and "preview_kind" not in changes:
+            changes["preview_kind"] = (
+                PreviewKind.ERROR if changes.get("error_message") else PreviewKind.SYSTEM
+            )
         self._state = replace(self._state, **changes)
         self.state_changed.emit(self._state)
 

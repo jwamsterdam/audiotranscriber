@@ -68,6 +68,8 @@ class RecordingPipeline:
         self._output_path: Path | None = None
         self._source = InputSource.TEST_TONE
         self._microphone_device_key: str | None = None
+        self._started_event = threading.Event()
+        self._startup_failed: Exception | None = None
 
     @property
     def output_dir(self) -> Path:
@@ -161,16 +163,13 @@ class RecordingPipeline:
 
         self._stop_event.clear()
         self._pause_event.clear()
+        self._started_event.clear()
+        self._startup_failed = None
         self._chunk_buffer = bytearray()
         self._chunk_index = 0
         self._chunk_target_bytes = self._chunk_bytes_for_seconds(chunk_seconds)
         self._output_dir.mkdir(parents=True, exist_ok=True)
         self._output_path = self._output_dir / self._timestamped_name()
-
-        self._wave_file = wave.open(str(self._output_path), "wb")
-        self._wave_file.setnchannels(CHANNELS)
-        self._wave_file.setsampwidth(SAMPLE_WIDTH_BYTES)
-        self._wave_file.setframerate(SAMPLE_RATE)
 
         if source == InputSource.TEST_TONE:
             target = self._record_test_tone
@@ -189,14 +188,29 @@ class RecordingPipeline:
             daemon=True,
         )
         self._thread.start()
+        if not self._started_event.wait(timeout=2):
+            self._stop_event.set()
+            raise RuntimeError("Recording could not start. Try again.")
+        if self._startup_failed is not None:
+            self._stop_event.set()
+            if self._thread:
+                self._thread.join(timeout=1)
+            self._delete_empty_output()
+            raise self._startup_failed
         return self._output_path
 
     def _run_recording_target(self, target: Callable[..., None], *args) -> None:  # noqa: ANN002
         try:
             target(*args)
         except Exception as exc:  # noqa: BLE001
+            if not self._started_event.is_set():
+                self._startup_failed = exc
+                self._started_event.set()
             self._on_level(0.0)
             self._close_wave()
+            self._delete_empty_output()
+            if self._startup_failed is not None:
+                return
             if self._on_error is not None:
                 if self._source == InputSource.MICROPHONE:
                     self._on_error(_friendly_microphone_error(exc))
@@ -220,6 +234,8 @@ class RecordingPipeline:
         return self._output_path
 
     def _record_test_tone(self) -> None:
+        self._open_wave_file()
+        self._started_event.set()
         frame_index = 0
         while not self._stop_event.is_set():
             if self._pause_event.is_set():
@@ -271,6 +287,8 @@ class RecordingPipeline:
                 callback=callback,
                 blocksize=CHUNK_FRAMES,
             ):
+                self._open_wave_file()
+                self._started_event.set()
                 while not self._stop_event.is_set():
                     time.sleep(CHUNK_SECONDS)
         except Exception as exc:  # noqa: BLE001
@@ -278,6 +296,8 @@ class RecordingPipeline:
 
     def _record_dev_sample(self, source_path: Path) -> None:
         audio = _decode_audio_file(source_path)
+        self._open_wave_file()
+        self._started_event.set()
         cursor = 0
         while not self._stop_event.is_set() and cursor < len(audio):
             if self._pause_event.is_set():
@@ -330,6 +350,27 @@ class RecordingPipeline:
             if self._wave_file is not None:
                 self._wave_file.close()
                 self._wave_file = None
+
+    def _open_wave_file(self) -> None:
+        with self._write_lock:
+            if self._wave_file is not None:
+                return
+            if self._output_path is None:
+                raise RuntimeError("No output path was prepared for recording.")
+            self._wave_file = wave.open(str(self._output_path), "wb")
+            self._wave_file.setnchannels(CHANNELS)
+            self._wave_file.setsampwidth(SAMPLE_WIDTH_BYTES)
+            self._wave_file.setframerate(SAMPLE_RATE)
+
+    def _delete_empty_output(self) -> None:
+        path = self._output_path
+        if path is None or not path.exists():
+            return
+        try:
+            if path.stat().st_size == 0:
+                path.unlink()
+        except OSError:
+            pass
 
     @staticmethod
     def _timestamped_name() -> str:
@@ -411,8 +452,8 @@ def _select_input_device(
 
     if not input_devices:
         raise RuntimeError(
-            "No microphone input was found. Connect a microphone, check that Windows sees "
-            "an input device, then restart AudioTranscriber."
+            "Geen microfooningang gevonden. Sluit een microfoon of lijningang aan, "
+            "controleer of Windows de ingang ziet en probeer het daarna opnieuw."
         )
 
     if preferred_device_key:
@@ -441,24 +482,24 @@ def _normalise_device_part(value: str) -> str:
 def _friendly_microphone_error(error: Exception, device_name: str | None = None) -> str:
     detail = str(error).strip()
     lower_detail = detail.lower()
-    device_hint = f"\n\nSelected input device: {device_name}" if device_name else ""
+    device_hint = f"\n\nGeselecteerde ingang: {device_name}" if device_name else ""
     if any(word in lower_detail for word in {"permission", "access", "denied", "privacy"}):
         return (
-            "Microphone access was blocked. Allow AudioTranscriber to use the microphone "
-            "in Windows privacy settings, then restart the app and try again."
+            "Microfoontoegang is geblokkeerd. Geef AudioTranscriber toegang tot de "
+            "microfoon in de Windows privacy-instellingen en probeer het daarna opnieuw."
             f"{device_hint}"
         )
 
     if any(word in lower_detail for word in {"device", "input", "invalid", "unavailable"}):
         return (
-            "No microphone input was found. Connect a microphone, check that Windows sees "
-            "an input device, then restart AudioTranscriber."
+            "Geen microfooningang gevonden. Sluit een microfoon of lijningang aan, "
+            "controleer of Windows de ingang ziet en probeer het daarna opnieuw."
             f"{device_hint}"
         )
 
     return (
-        "The microphone could not be started. Check that a microphone is connected, that "
-        "Windows microphone permissions are enabled, and that no other app is blocking it."
+        "De microfoon kon niet worden gestart. Controleer of de ingang is aangesloten, "
+        "of Windows microfoontoegang toestaat en of geen andere app de ingang blokkeert."
         f"{device_hint}"
     )
 

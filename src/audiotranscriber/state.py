@@ -25,6 +25,12 @@ class TranscriptionLanguage(str, Enum):
     ENGLISH = "en"
 
 
+class PreviewKind(str, Enum):
+    SYSTEM = "system"
+    TRANSCRIPT = "transcript"
+    ERROR = "error"
+
+
 @dataclass(frozen=True)
 class RecorderState:
     status: RecorderStatus = RecorderStatus.IDLE
@@ -43,6 +49,7 @@ class RecorderState:
     processing_label: str | None = None
     processing_progress_text: str | None = None
     error_message: str | None = None
+    preview_kind: PreviewKind = PreviewKind.SYSTEM
     preview_text: str = (
         "Nog geen opname opgeslagen. Microfoon staat standaard klaar. Gebruik voor "
         "testen zonder microfoon de ingebouwde testtoon via de rechtermuisknop."

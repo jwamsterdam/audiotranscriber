@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from html import escape
 import sys
 from pathlib import Path
 
@@ -35,6 +36,7 @@ from audiotranscriber.app_config import AppConfig
 from audiotranscriber.controllers.app_controller import AppController
 from audiotranscriber.state import (
     InputSource,
+    PreviewKind,
     RecorderState,
     RecorderStatus,
     TranscriptionLanguage,
@@ -72,6 +74,7 @@ class RecorderStripWindow(QMainWindow):
         self._audio_output.setVolume(0.8)
         self._media_player = QMediaPlayer(self)
         self._media_player.setAudioOutput(self._audio_output)
+        self._last_preview_render_key: tuple[PreviewKind, str] | None = None
 
         self.setWindowTitle("AudioTranscriber")
         self.setWindowIcon(QIcon(str(_resource_path("audiotranscriber/assets/app.ico"))))
@@ -179,7 +182,7 @@ class RecorderStripWindow(QMainWindow):
         self.transcript_text = QTextEdit(self.transcript_panel)
         self.transcript_text.setObjectName("transcriptText")
         self.transcript_text.setReadOnly(True)
-        self.transcript_text.setAcceptRichText(False)
+        self.transcript_text.setAcceptRichText(True)
         self.transcript_text.setFrameShape(QFrame.Shape.NoFrame)
         self.transcript_text.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
         self.transcript_text.setSizePolicy(
@@ -222,7 +225,7 @@ class RecorderStripWindow(QMainWindow):
             }
         )
         self._apply_language_state(state)
-        self._set_transcript_text(state.preview_text)
+        self._set_transcript_text(state.preview_text, state.preview_kind)
         self.expand_button.set_kind(IconKind.COLLAPSE if state.transcript_open else IconKind.EXPAND)
         self.strip.setProperty("expanded", state.transcript_open)
         self.strip.style().unpolish(self.strip)
@@ -937,15 +940,44 @@ class RecorderStripWindow(QMainWindow):
         )
         return result == QMessageBox.StandardButton.Yes
 
-    def _set_transcript_text(self, text: str) -> None:
-        if self.transcript_text.toPlainText() == text:
+    def _set_transcript_text(self, text: str, kind: PreviewKind) -> None:
+        render_key = (kind, text)
+        if self._last_preview_render_key == render_key:
             return
 
+        self._last_preview_render_key = render_key
         scrollbar = self.transcript_text.verticalScrollBar()
         was_at_bottom = scrollbar.value() >= scrollbar.maximum() - 4
-        self.transcript_text.setPlainText(text)
+        if kind == PreviewKind.TRANSCRIPT:
+            self.transcript_text.setPlainText(text)
+        else:
+            self.transcript_text.setHtml(self._render_preview_message(text, kind))
         if was_at_bottom:
             scrollbar.setValue(scrollbar.maximum())
+
+    @staticmethod
+    def _render_preview_message(text: str, kind: PreviewKind) -> str:
+        is_error = kind == PreviewKind.ERROR
+        paragraphs = text.strip() or "Geen extra details."
+        paragraph_html = "".join(
+            "<p>"
+            + escape(block.strip()).replace("\n", "<br>")
+            + "</p>"
+            for block in paragraphs.split("\n\n")
+            if block.strip()
+        )
+        color = "#d5dadd" if is_error else "#aeb6ba"
+        return f"""
+        <div style="
+            font-family: Segoe UI, Inter, Arial, sans-serif;
+            color: {color};
+            font-size: 16px;
+            line-height: 1.45;
+            font-weight: 400;
+        ">
+            {paragraph_html}
+        </div>
+        """
 
     def _animate_layout(self, target_height: int, target_width: int) -> None:
         self._animate_window_width(target_width)
