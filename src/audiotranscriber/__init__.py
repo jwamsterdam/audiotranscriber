@@ -1,6 +1,7 @@
 """Compact local recorder and transcription strip."""
 
+from audiotranscriber.app_config import APP_VERSION
+
 __all__ = ["__version__"]
 
-__version__ = "0.1.0"
-
+__version__ = APP_VERSION

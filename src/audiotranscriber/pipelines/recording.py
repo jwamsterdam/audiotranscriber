@@ -1,8 +1,9 @@
-"""Local WAV recording pipeline for Phase 2."""
+"""Local WAV recording pipeline."""
 
 from __future__ import annotations
 
 import math
+import logging
 import struct
 import threading
 import time
@@ -25,6 +26,7 @@ LevelCallback = Callable[[float], None]
 ChunkCallback = Callable[[bytes, int], None]
 ErrorCallback = Callable[[str], None]
 LIVE_CHUNK_SECONDS = 4
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -89,7 +91,7 @@ class RecordingPipeline:
         try:
             return _list_input_devices(sd)
         except Exception as exc:  # noqa: BLE001
-            print(f"Could not read audio devices: {exc}", flush=True)
+            LOGGER.warning("Could not read audio devices: %s", exc)
             return []
 
     @staticmethod
@@ -190,11 +192,21 @@ class RecordingPipeline:
         self._thread.start()
         if not self._started_event.wait(timeout=2):
             self._stop_event.set()
-            raise RuntimeError("Recording could not start. Try again.")
+            if self._thread:
+                self._thread.join(timeout=1)
+                if not self._thread.is_alive():
+                    self._thread = None
+            self._close_wave()
+            self._delete_empty_output()
+            raise RuntimeError(
+                "De opname kon niet worden gestart. Probeer het opnieuw."
+            )
         if self._startup_failed is not None:
             self._stop_event.set()
             if self._thread:
                 self._thread.join(timeout=1)
+                if not self._thread.is_alive():
+                    self._thread = None
             self._delete_empty_output()
             raise self._startup_failed
         return self._output_path

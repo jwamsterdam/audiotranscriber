@@ -1,2 +1,1 @@
-"""Audio and transcription pipeline placeholders for later phases."""
-
+"""Audio, transcription, and post-processing pipelines."""

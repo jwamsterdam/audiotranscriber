@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from html import escape
-import sys
 from pathlib import Path
 
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt
@@ -34,6 +33,7 @@ from PySide6.QtWidgets import (
 
 from audiotranscriber.app_config import AppConfig
 from audiotranscriber.controllers.app_controller import AppController
+from audiotranscriber.resources import resource_path
 from audiotranscriber.state import (
     InputSource,
     PreviewKind,
@@ -59,7 +59,7 @@ UNSNAP_PULL_DISTANCE = 34
 
 
 class RecorderStripWindow(QMainWindow):
-    """Compact always-on-top friendly window for Phase 1."""
+    """Compact always-on-top friendly recorder strip."""
 
     def __init__(self, config: AppConfig) -> None:
         super().__init__()
@@ -77,10 +77,10 @@ class RecorderStripWindow(QMainWindow):
         self._last_preview_render_key: tuple[PreviewKind, str] | None = None
 
         self.setWindowTitle("AudioTranscriber")
-        self.setWindowIcon(QIcon(str(_resource_path("audiotranscriber/assets/app.ico"))))
+        self.setWindowIcon(QIcon(str(resource_path("audiotranscriber/assets/app.ico"))))
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.Tool
+            | Qt.WindowType.Window
             | Qt.WindowType.WindowStaysOnTopHint
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
@@ -1028,11 +1028,6 @@ class RecorderStripWindow(QMainWindow):
         minutes = (seconds % 3600) // 60
         secs = seconds % 60
         return f"{hours:02}:{minutes:02}:{secs:02}"
-
-
-def _resource_path(relative_path: str) -> Path:
-    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
-    return base / relative_path
 
 
 def _clean_device_name(name: str) -> str:

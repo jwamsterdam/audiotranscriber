@@ -87,6 +87,7 @@ class TranscriptionPipeline:
 
         confirmed_text: list[str] = []
         transcript_path.write_text("", encoding="utf-8")
+        rendered_text = ""
 
         for chunk_index, start in enumerate(range(0, len(audio), step_frames), start=1):
             if cancel_event.is_set():
@@ -106,9 +107,13 @@ class TranscriptionPipeline:
             text = " ".join(segment.text.strip() for segment in segments).strip()
             if text:
                 confirmed_text.append(text)
+                with transcript_path.open("a", encoding="utf-8") as transcript_file:
+                    if rendered_text:
+                        transcript_file.write("\n\n")
+                    transcript_file.write(text)
+                rendered_text = "\n\n".join(confirmed_text)
 
-            transcript_path.write_text("\n\n".join(confirmed_text), encoding="utf-8")
-            on_progress(chunk_index, total_chunks, "\n\n".join(confirmed_text), transcript_path)
+            on_progress(chunk_index, total_chunks, rendered_text, transcript_path)
 
         return transcript_path
 
@@ -165,6 +170,7 @@ class TranscriptionPipeline:
             ) from exc
 
         return decode_audio(str(audio_path), sampling_rate=SAMPLE_RATE)
+
 
 def _friendly_model_error(error: Exception, config: TranscriptionConfig) -> str:
     detail = str(error).strip()

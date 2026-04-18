@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from enum import Enum
 
-from PySide6.QtCore import QEasingCurve, QPointF, QPropertyAnimation, QRectF, QSize, Qt, QTimer
+from PySide6.QtCore import QPointF, QRectF, QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QAbstractButton, QSizePolicy, QWidget
 
@@ -16,73 +16,13 @@ GREEN = QColor("#58cf5f")
 RED = QColor("#ff3f3f")
 YELLOW = QColor("#f3c12f")
 INK = QColor("#f7f8f8")
-MUTED = QColor("#6b7379")
 
 
 class IconKind(str, Enum):
     STOP = "stop"
     PAUSE = "pause"
-    RECORD = "record"
     EXPAND = "expand"
     COLLAPSE = "collapse"
-
-
-class StatusDot(QWidget):
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self._status = RecorderStatus.IDLE
-        self._blink_on = True
-        self._blink_timer = QTimer(self)
-        self._blink_timer.setInterval(520)
-        self._blink_timer.timeout.connect(self._toggle_blink)
-        self.setFixedSize(48, 48)
-
-    def set_status(self, status: RecorderStatus) -> None:
-        self._status = status
-        self._blink_on = True
-        if status == RecorderStatus.RECORDING:
-            self._blink_timer.start()
-        else:
-            self._blink_timer.stop()
-        self.update()
-
-    def _toggle_blink(self) -> None:
-        self._blink_on = not self._blink_on
-        self.update()
-
-    def paintEvent(self, event) -> None:  # noqa: N802
-        del event
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        if self._status == RecorderStatus.RECORDING:
-            color = RED
-            glow_alpha = 95 if self._blink_on else 24
-            core_alpha = 255 if self._blink_on else 130
-        elif self._status == RecorderStatus.PROCESSING:
-            color = YELLOW
-            glow_alpha = 34
-            core_alpha = 255
-        elif self._status == RecorderStatus.PAUSED:
-            color = YELLOW
-            glow_alpha = 20
-            core_alpha = 210
-        else:
-            color = GREEN
-            glow_alpha = 24
-            core_alpha = 255
-
-        glow = QColor(color)
-        glow.setAlpha(glow_alpha)
-        painter.setBrush(glow)
-        painter.setPen(Qt.PenStyle.NoPen)
-        center = QPointF(self.width() / 2, self.height() / 2)
-        painter.drawEllipse(center, 20, 20)
-
-        core = QColor(color)
-        core.setAlpha(core_alpha)
-        painter.setBrush(core)
-        painter.drawEllipse(center, 10, 10)
 
 
 class PrimaryRecordButton(QAbstractButton):
@@ -269,15 +209,6 @@ class StripIconButton(QAbstractButton):
             painter.setPen(Qt.PenStyle.NoPen)
             painter.drawRoundedRect(self.rect().adjusted(6, 6, -6, -6), 8, 8)
 
-        if self._kind == IconKind.RECORD:
-            center = QPointF(self.width() / 2, self.height() / 2)
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(255, 63, 63, 32))
-            painter.drawEllipse(center, 18, 18)
-            painter.setBrush(RED)
-            painter.drawEllipse(center, 10, 10)
-            return
-
         icon_color = QColor("#c8cdd0") if self._kind in {IconKind.EXPAND, IconKind.COLLAPSE} else INK
         icon_width = 3 if self._kind in {IconKind.EXPAND, IconKind.COLLAPSE} else 5
         pen = QPen(icon_color, icon_width)
@@ -305,13 +236,3 @@ class StripIconButton(QAbstractButton):
                 path.lineTo(33, 29)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawPath(path)
-
-
-def animate_height(widget: QWidget, target_height: int, duration_ms: int = 180) -> QPropertyAnimation:
-    animation = QPropertyAnimation(widget, b"maximumHeight", widget)
-    animation.setDuration(duration_ms)
-    animation.setStartValue(widget.maximumHeight())
-    animation.setEndValue(target_height)
-    animation.setEasingCurve(QEasingCurve.Type.OutCubic)
-    animation.start()
-    return animation

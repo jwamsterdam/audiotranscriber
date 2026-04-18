@@ -14,6 +14,9 @@ _No unreleased changes._
 - Made the collapsed strip narrower with a compact 7-bar waveform, added quick expand/collapse animation, and reduced expanded waveform amplitude so the strip is less visually distracting.
 - Prevented empty 0-second WAV/TXT artifacts when microphone startup fails before recording begins.
 - Rendered system and error messages separately from live captions in the transcript panel, with Dutch user-facing microphone startup messages.
+- Made the main recorder window appear as a normal running app in the Windows taskbar with the AudioTranscriber icon.
+- Improved shutdown cleanup, startup-failure cleanup, version reporting, resource path handling, and privacy-safe logging.
+- Added live-caption backlog protection, incremental transcript writes, and a long-WAV warning for high-quality transcription.
 
 ## 0.1.5 - High-Quality VAD Packaging Fix
 

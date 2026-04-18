@@ -1,24 +1,25 @@
-"""App controller for recording state and Phase 2 audio capture."""
+"""App controller for recording, transcription, and post-processing state."""
 
 from __future__ import annotations
 
 import sys
+import logging
 from dataclasses import replace
 from pathlib import Path
-from queue import Queue
+from queue import Empty, Full, Queue
 from threading import Event, Thread
 
 from PySide6.QtCore import QObject, QSettings, QTimer, Signal
 
 from audiotranscriber.app_config import AppConfig
 from audiotranscriber.pipelines.post_processing import (
-    HIGH_QUALITY_CHUNK_SECONDS,
     HIGH_QUALITY_MODEL_LABEL,
     HIGH_QUALITY_MODEL_NAME,
     backup_mp3_path_for,
     export_mp3_backup,
     high_quality_transcript_path_for,
     high_quality_transcription_config,
+    wav_duration_seconds,
 )
 from audiotranscriber.pipelines.recording import (
     CHANNELS,
@@ -48,10 +49,13 @@ from audiotranscriber.system_info import (
 from audiotranscriber.update_checker import check_for_updates, refresh_model_cache
 
 MICROPHONE_DEVICE_SETTING = "audio/microphoneDeviceKey"
+LIVE_TRANSCRIPTION_QUEUE_LIMIT = 3
+LONG_HQ_AUDIO_WARNING_SECONDS = 90 * 60
+LOGGER = logging.getLogger(__name__)
 
 
 class AppController(QObject):
-    """Owns app state until real audio/transcription services arrive in later phases."""
+    """Owns app state and coordinates UI-facing pipeline work."""
 
     state_changed = Signal(object)
     level_detected = Signal(float)
@@ -96,11 +100,13 @@ class AppController(QObject):
         self._transcription_thread: Thread | None = None
         self._live_chunk_queue: Queue[tuple[int, bytes] | None] = Queue()
         self._live_transcription_thread: Thread | None = None
-        self._live_transcript_parts: dict[int, str] = {}
+        self._live_transcript_text = ""
         self._live_transcript_path: Path | None = None
         self._live_audio_path: Path | None = None
         self._live_chunks_done = 0
         self._live_chunks_queued = 0
+        self._live_chunks_dropped = 0
+        self._live_chunks_with_text = 0
         self.level_detected.connect(self._set_audio_level)
         self.recording_failed.connect(self._handle_recording_failed)
         self.live_transcription_progress.connect(self._handle_live_transcription_progress)
@@ -478,10 +484,9 @@ class AppController(QObject):
         preview = "Opname gestopt."
         if output_path is not None:
             preview = f"Opname gestopt. Laatste live chunk wordt opgeslagen...\n\n{output_path}"
-            print(
+            LOGGER.info(
                 "Saving transcript from queued live chunks. "
-                "No second transcription pass will be started.",
-                flush=True,
+                "No second transcription pass will be started."
             )
 
         self._set_state(
@@ -539,14 +544,13 @@ class AppController(QObject):
                 f"{self._transcriber.config.device}, {self._transcriber.config.compute_type}"
             ),
         )
-        print(
+        LOGGER.info(
             "Starting transcription: "
             f"{target} "
             f"model={self._transcriber.config.model_name} "
             f"device={self._transcriber.config.device} "
             f"compute_type={self._transcriber.config.compute_type} "
-            f"language={self._transcriber.config.language or 'auto'}",
-            flush=True,
+            f"language={self._transcriber.config.language or 'auto'}"
         )
         self._preview_age_timer.start()
 
@@ -594,7 +598,7 @@ class AppController(QObject):
             ),
         )
         self._preview_age_timer.start()
-        print(f"Starting MP3 backup export: {target} -> {output_path}", flush=True)
+        LOGGER.info("Starting MP3 backup export: %s -> %s", target, output_path)
 
         self._transcription_thread = Thread(
             target=self._run_mp3_export,
@@ -623,6 +627,7 @@ class AppController(QObject):
             return
 
         output_path = high_quality_transcript_path_for(target)
+        duration_warning = _long_audio_warning(target)
         self._transcription_cancel.clear()
         self._set_state(
             status=RecorderStatus.PROCESSING,
@@ -640,6 +645,7 @@ class AppController(QObject):
                 "Preset: hoge kwaliteit\n"
                 f"Model: {HIGH_QUALITY_MODEL_LABEL}\n"
                 "Model wordt indien nodig eenmalig gedownload.\n"
+                f"{duration_warning}"
                 f"Bron:\n{target}\n\n"
                 f"Doel:\n{output_path}"
             ),
@@ -649,7 +655,7 @@ class AppController(QObject):
             self._transcriber.config.language,
             self._config.model_cache_dir,
         )
-        print(
+        LOGGER.info(
             "Starting high-quality transcript: "
             f"{target} "
             f"model={HIGH_QUALITY_MODEL_NAME} "
@@ -657,8 +663,7 @@ class AppController(QObject):
             f"compute_type={high_quality_config.compute_type} "
             f"cpu_threads={high_quality_config.cpu_threads} "
             f"vad_filter={high_quality_config.vad_filter} "
-            f"language={self._transcriber.config.language or 'auto'}",
-            flush=True,
+            f"language={self._transcriber.config.language or 'auto'}"
         )
 
         self._transcription_thread = Thread(
@@ -686,7 +691,7 @@ class AppController(QObject):
 
         self._transcription_cancel.set()
         if live_running:
-            self._live_chunk_queue.put(None)
+            self._stop_live_transcription_queue()
         self._set_state(
             status=RecorderStatus.PROCESSING,
             transcript_open=True,
@@ -717,10 +722,19 @@ class AppController(QObject):
             self._set_state(last_update_seconds=current + 1)
 
     def shutdown(self) -> None:
+        self._elapsed_timer.stop()
+        self._preview_age_timer.stop()
+        self._processing_timer.stop()
         if self._state.status in {RecorderStatus.RECORDING, RecorderStatus.PAUSED}:
             self._recorder.stop()
-        self._transcription_cancel.set()
-        self._finish_live_transcription()
+            self._drain_live_transcription_on_shutdown()
+        else:
+            self._transcription_cancel.set()
+            if self._live_transcription_thread and self._live_transcription_thread.is_alive():
+                self._stop_live_transcription_queue()
+                self._live_transcription_thread.join(timeout=5)
+            if self._transcription_thread and self._transcription_thread.is_alive():
+                self._transcription_thread.join(timeout=5)
 
     def _set_audio_level(self, level: float) -> None:
         if self._state.status == RecorderStatus.RECORDING:
@@ -814,25 +828,26 @@ class AppController(QObject):
 
     def _start_live_transcription(self, audio_path: Path) -> None:
         self._transcription_cancel.clear()
-        self._live_chunk_queue = Queue()
-        self._live_transcript_parts = {}
+        self._live_chunk_queue = Queue(maxsize=LIVE_TRANSCRIPTION_QUEUE_LIMIT)
+        self._live_transcript_text = ""
         self._live_audio_path = audio_path
         self._live_transcript_path = self._transcriber.transcript_path_for(audio_path)
         self._live_transcript_path.write_text("", encoding="utf-8")
         self._live_chunks_done = 0
         self._live_chunks_queued = 0
+        self._live_chunks_dropped = 0
+        self._live_chunks_with_text = 0
         self._live_transcription_thread = Thread(
             target=self._run_live_transcription,
             name="LiveTranscriptionPipeline",
             daemon=True,
         )
         self._live_transcription_thread.start()
-        print(
+        LOGGER.info(
             "Starting near-real-time transcription: "
             f"{audio_path} "
             f"chunk_seconds={LIVE_CHUNK_SECONDS} "
-            f"language={self._transcriber.config.language or 'auto'}",
-            flush=True,
+            f"language={self._transcriber.config.language or 'auto'}"
         )
 
     def _recording_chunk_from_thread(self, chunk: bytes, chunk_index: int) -> None:
@@ -842,11 +857,19 @@ class AppController(QObject):
             return
 
         self._live_chunks_queued = max(self._live_chunks_queued, chunk_index)
-        self._live_chunk_queue.put((chunk_index, chunk))
+        try:
+            self._live_chunk_queue.put_nowait((chunk_index, chunk))
+        except Full:
+            try:
+                self._live_chunk_queue.get_nowait()
+                self._live_chunks_dropped += 1
+            except Empty:
+                pass
+            self._live_chunk_queue.put_nowait((chunk_index, chunk))
 
     def _finish_live_transcription(self) -> None:
         if self._live_transcription_thread and self._live_transcription_thread.is_alive():
-            self._live_chunk_queue.put(None)
+            self._stop_live_transcription_queue()
             self._preview_age_timer.start()
             return
 
@@ -855,6 +878,31 @@ class AppController(QObject):
 
         if self._live_transcript_path is not None:
             self.transcription_finished.emit(str(self._live_transcript_path))
+
+    def _drain_live_transcription_on_shutdown(self) -> None:
+        if self._live_transcription_thread and self._live_transcription_thread.is_alive():
+            self._stop_live_transcription_queue()
+            self._live_transcription_thread.join(timeout=30)
+
+        if self._live_transcription_thread and self._live_transcription_thread.is_alive():
+            self._transcription_cancel.set()
+            return
+
+        self._transcription_cancel.set()
+
+    def _stop_live_transcription_queue(self) -> None:
+        try:
+            self._live_chunk_queue.put_nowait(None)
+            return
+        except Full:
+            pass
+
+        try:
+            self._live_chunk_queue.get_nowait()
+            self._live_chunks_dropped += 1
+        except Empty:
+            pass
+        self._live_chunk_queue.put_nowait(None)
 
     def _run_live_transcription(self) -> None:
         while not self._transcription_cancel.is_set():
@@ -868,21 +916,15 @@ class AppController(QObject):
             except Exception as exc:  # noqa: BLE001
                 self.transcription_failed.emit(str(exc))
                 return
-            if text:
-                self._live_transcript_parts[chunk_index] = text
+            transcript_text = self._append_live_transcript_text(text)
             self._live_chunks_done = chunk_index
-            transcript_text = self._render_live_transcript_text()
-            print(
+            LOGGER.info(
                 f"Live transcription chunk "
-                f"{chunk_index}/{max(self._live_chunks_queued, chunk_index)}",
-                flush=True,
+                f"{chunk_index}/{max(self._live_chunks_queued, chunk_index)} "
+                f"dropped={self._live_chunks_dropped}"
             )
 
-            if self._live_transcript_path is not None:
-                self._live_transcript_path.write_text(transcript_text, encoding="utf-8")
-                transcript_path = str(self._live_transcript_path)
-            else:
-                transcript_path = ""
+            transcript_path = str(self._live_transcript_path) if self._live_transcript_path else ""
 
             self.live_transcription_progress.emit(
                 chunk_index,
@@ -897,43 +939,38 @@ class AppController(QObject):
             return
 
         if self._live_transcript_path is not None:
-            transcript_text = self._render_live_transcript_text()
-            self._live_transcript_path.write_text(transcript_text, encoding="utf-8")
-            print(
-                f"Transcript saved from {len(self._live_transcript_parts)} live chunks.",
-                flush=True,
+            LOGGER.info(
+                f"Transcript saved from {self._live_chunks_with_text} live chunks. "
+                f"dropped={self._live_chunks_dropped}",
             )
             self._live_audio_path = None
             self.transcription_finished.emit(str(self._live_transcript_path))
 
-    def _render_live_transcript_text(self) -> str:
-        parts: list[str] = []
-        for index in sorted(self._live_transcript_parts):
-            text = self._live_transcript_parts[index].strip()
-            if text:
-                parts.append(text)
-        return self._clean_joined_text(parts)
+    def _append_live_transcript_text(self, text: str) -> str:
+        text = self._clean_next_text(self._live_transcript_text, text.strip())
+        if not text:
+            return self._live_transcript_text
+
+        prefix = "\n\n" if self._live_transcript_text else ""
+        self._live_transcript_text = f"{self._live_transcript_text}{prefix}{text}"
+        self._live_chunks_with_text += 1
+        if self._live_transcript_path is not None:
+            with self._live_transcript_path.open("a", encoding="utf-8") as transcript_file:
+                transcript_file.write(f"{prefix}{text}")
+        return self._live_transcript_text
 
     @staticmethod
-    def _clean_joined_text(parts: list[str]) -> str:
-        cleaned: list[str] = []
-        for text in parts:
-            if not text:
-                continue
-            if cleaned:
-                previous_words = cleaned[-1].split()
-                current_words = text.split()
-                max_overlap = min(len(previous_words), len(current_words), 8)
-                overlap = 0
-                for size in range(max_overlap, 0, -1):
-                    if previous_words[-size:] == current_words[:size]:
-                        overlap = size
-                        break
-                if overlap:
-                    text = " ".join(current_words[overlap:])
-            if text:
-                cleaned.append(text)
-        return "\n\n".join(cleaned)
+    def _clean_next_text(existing_text: str, next_text: str) -> str:
+        if not existing_text or not next_text:
+            return next_text
+
+        previous_words = existing_text.rsplit("\n\n", maxsplit=1)[-1].split()
+        current_words = next_text.split()
+        max_overlap = min(len(previous_words), len(current_words), 8)
+        for size in range(max_overlap, 0, -1):
+            if previous_words[-size:] == current_words[:size]:
+                return " ".join(current_words[size:])
+        return next_text
 
     def _handle_transcription_progress(
         self,
@@ -944,14 +981,12 @@ class AppController(QObject):
     ) -> None:
         latest_text = text.rsplit("\n\n", maxsplit=1)[-1].strip() if text.strip() else ""
         if latest_text:
-            print(
-                f"Transcription chunk {current_chunk}/{total_chunks}: {latest_text}",
-                flush=True,
-            )
+            LOGGER.info("Transcription chunk %s/%s: text detected", current_chunk, total_chunks)
         else:
-            print(
-                f"Transcription chunk {current_chunk}/{total_chunks}: no speech detected yet",
-                flush=True,
+            LOGGER.info(
+                "Transcription chunk %s/%s: no speech detected yet",
+                current_chunk,
+                total_chunks,
             )
         self._set_state(
             status=RecorderStatus.PROCESSING,
@@ -977,6 +1012,12 @@ class AppController(QObject):
         transcript_path: str,
     ) -> None:
         status = self._state.status
+        dropped_note = (
+            f"\n\nLive captions lopen achter; {self._live_chunks_dropped} oudere "
+            "preview-chunk(s) overgeslagen om de app responsief te houden."
+            if self._live_chunks_dropped and not text
+            else ""
+        )
         self._set_state(
             status=status,
             last_update_seconds=0,
@@ -989,6 +1030,7 @@ class AppController(QObject):
                 or (
                     f"Live transcriptie chunk {current_chunk}/{total_chunks}...\n\n"
                     "Nog geen spraak herkend in de verwerkte audio."
+                    f"{dropped_note}"
                 )
             ),
         )
@@ -997,8 +1039,8 @@ class AppController(QObject):
         self._elapsed_timer.stop()
         self._preview_age_timer.stop()
         self._transcription_cancel.set()
-        self._live_chunk_queue.put(None)
-        print(f"Recording failed: {error}", flush=True)
+        self._stop_live_transcription_queue()
+        LOGGER.warning("Recording failed: %s", error)
         self._set_state(
             status=RecorderStatus.IDLE,
             last_update_seconds=None,
@@ -1015,7 +1057,7 @@ class AppController(QObject):
 
     def _handle_transcription_finished(self, transcript_path: str) -> None:
         self._preview_age_timer.stop()
-        print(f"Transcription finished: {transcript_path}", flush=True)
+        LOGGER.info("Transcription finished: %s", transcript_path)
         text = self._state.preview_text
         saved_text = ""
         try:
@@ -1051,7 +1093,7 @@ class AppController(QObject):
 
     def _handle_transcription_failed(self, error: str) -> None:
         self._preview_age_timer.stop()
-        print(f"Transcription failed: {error}", flush=True)
+        LOGGER.warning("Transcription failed: %s", error)
         self._set_state(
             status=RecorderStatus.IDLE,
             last_update_seconds=None,
@@ -1068,7 +1110,7 @@ class AppController(QObject):
 
     def _handle_transcription_cancelled(self, transcript_path: str) -> None:
         self._preview_age_timer.stop()
-        print(f"Transcription cancelled. Partial transcript: {transcript_path}", flush=True)
+        LOGGER.info("Transcription cancelled. Partial transcript: %s", transcript_path)
         self._set_state(
             status=RecorderStatus.IDLE,
             last_update_seconds=None,
@@ -1101,7 +1143,7 @@ class AppController(QObject):
 
     def _handle_post_processing_finished(self, label: str, output_path: str) -> None:
         self._preview_age_timer.stop()
-        print(f"{label}: {output_path}", flush=True)
+        LOGGER.info("%s: %s", label, output_path)
         self._set_state(
             status=RecorderStatus.IDLE,
             last_update_seconds=None,
@@ -1118,7 +1160,7 @@ class AppController(QObject):
 
     def _handle_post_processing_failed(self, error: str) -> None:
         self._preview_age_timer.stop()
-        print(f"Post-processing failed: {error}", flush=True)
+        LOGGER.warning("Post-processing failed: %s", error)
         self._set_state(
             status=RecorderStatus.IDLE,
             last_update_seconds=None,
@@ -1176,3 +1218,16 @@ def _cpu_threads() -> str:
 
 def _installed_memory() -> str:
     return installed_memory()
+
+
+def _long_audio_warning(audio_path: Path) -> str:
+    duration = wav_duration_seconds(audio_path)
+    if duration is None or duration < LONG_HQ_AUDIO_WARNING_SECONDS:
+        return ""
+
+    minutes = round(duration / 60)
+    return (
+        f"Let op: deze WAV is ongeveer {minutes} minuten lang. "
+        "De hoge-kwaliteit transcriptie decodeert de audio lokaal en kan tijdelijk "
+        "extra geheugen gebruiken.\n"
+    )

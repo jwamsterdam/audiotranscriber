@@ -89,7 +89,7 @@ def export_mp3_backup(audio_path: Path, on_progress: ProgressCallback | None = N
         str(output_path),
     ]
 
-    duration_seconds = _wav_duration_seconds(audio_path)
+    duration_seconds = wav_duration_seconds(audio_path)
     if on_progress is not None:
         on_progress(0, 100)
 
@@ -146,7 +146,7 @@ def _creation_flags() -> int:
     return 0
 
 
-def _wav_duration_seconds(audio_path: Path) -> float | None:
+def wav_duration_seconds(audio_path: Path) -> float | None:
     try:
         with wave.open(str(audio_path), "rb") as wav_file:
             frames = wav_file.getnframes()
