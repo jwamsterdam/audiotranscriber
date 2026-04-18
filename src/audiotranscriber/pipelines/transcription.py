@@ -9,6 +9,8 @@ from threading import Event
 
 import numpy as np
 
+from audiotranscriber.pipelines.transcript_writer import TranscriptWriter
+
 
 DEFAULT_MODEL_NAME = "base"
 DEFAULT_DEVICE = "cpu"
@@ -75,8 +77,7 @@ class TranscriptionPipeline:
         if not audio_path.exists():
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
 
-        transcript_path = transcript_path or self.transcript_path_for(audio_path)
-        transcript_path.parent.mkdir(parents=True, exist_ok=True)
+        transcript_output_path = transcript_path or self.transcript_path_for(audio_path)
 
         model = self._load_model()
         audio = self._decode_audio(audio_path)
@@ -84,10 +85,8 @@ class TranscriptionPipeline:
         overlap_frames = self._config.overlap_seconds * SAMPLE_RATE
         step_frames = max(1, chunk_frames - overlap_frames)
         total_chunks = max(1, (len(audio) + step_frames - 1) // step_frames)
-
-        confirmed_text: list[str] = []
-        transcript_path.write_text("", encoding="utf-8")
-        rendered_text = ""
+        writer = TranscriptWriter(transcript_output_path)
+        writer.reset()
 
         for chunk_index, start in enumerate(range(0, len(audio), step_frames), start=1):
             if cancel_event.is_set():
@@ -106,16 +105,11 @@ class TranscriptionPipeline:
             )
             text = " ".join(segment.text.strip() for segment in segments).strip()
             if text:
-                confirmed_text.append(text)
-                with transcript_path.open("a", encoding="utf-8") as transcript_file:
-                    if rendered_text:
-                        transcript_file.write("\n\n")
-                    transcript_file.write(text)
-                rendered_text = "\n\n".join(confirmed_text)
+                writer.append(text, clean_overlap=self._config.overlap_seconds > 0)
 
-            on_progress(chunk_index, total_chunks, rendered_text, transcript_path)
+            on_progress(chunk_index, total_chunks, writer.text, writer.path)
 
-        return transcript_path
+        return writer.path
 
     def transcribe_pcm16_chunk(self, pcm_bytes: bytes) -> str:
         if not pcm_bytes:

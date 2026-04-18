@@ -17,6 +17,7 @@ _No unreleased changes._
 - Made the main recorder window appear as a normal running app in the Windows taskbar with the AudioTranscriber icon.
 - Improved shutdown cleanup, startup-failure cleanup, version reporting, resource path handling, and privacy-safe logging.
 - Added live-caption backlog protection, incremental transcript writes, and a long-WAV warning for high-quality transcription.
+- Centralized transcript file writing, added log rotation, and cached diagnostics data while the diagnostics window is open.
 
 ## 0.1.5 - High-Quality VAD Packaging Fix
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 import logging
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from queue import Empty, Full, Queue
 from threading import Event, Thread
@@ -33,6 +33,7 @@ from audiotranscriber.pipelines.transcription import (
     TranscriptionConfig,
     TranscriptionPipeline,
 )
+from audiotranscriber.pipelines.transcript_writer import TranscriptWriter
 from audiotranscriber.state import (
     InputSource,
     PreviewKind,
@@ -52,6 +53,13 @@ MICROPHONE_DEVICE_SETTING = "audio/microphoneDeviceKey"
 LIVE_TRANSCRIPTION_QUEUE_LIMIT = 3
 LONG_HQ_AUDIO_WARNING_SECONDS = 90 * 60
 LOGGER = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class DiagnosticsSnapshot:
+    sections: list[tuple[str, list[tuple[str, str]]]]
+    model_rows: list[tuple[str, str, str]]
+    devices: list[MicrophoneDevice]
 
 
 class AppController(QObject):
@@ -100,13 +108,12 @@ class AppController(QObject):
         self._transcription_thread: Thread | None = None
         self._live_chunk_queue: Queue[tuple[int, bytes] | None] = Queue()
         self._live_transcription_thread: Thread | None = None
-        self._live_transcript_text = ""
         self._live_transcript_path: Path | None = None
+        self._live_transcript_writer: TranscriptWriter | None = None
         self._live_audio_path: Path | None = None
         self._live_chunks_done = 0
         self._live_chunks_queued = 0
         self._live_chunks_dropped = 0
-        self._live_chunks_with_text = 0
         self.level_detected.connect(self._set_audio_level)
         self.recording_failed.connect(self._handle_recording_failed)
         self.live_transcription_progress.connect(self._handle_live_transcription_progress)
@@ -154,9 +161,23 @@ class AppController(QObject):
         return self._recorder.list_microphone_devices()
 
     def diagnostics_sections(self) -> list[tuple[str, list[tuple[str, str]]]]:
+        return self._diagnostics_sections(self.microphone_devices())
+
+    def diagnostics_snapshot(self) -> DiagnosticsSnapshot:
+        devices = self.microphone_devices()
+        return DiagnosticsSnapshot(
+            sections=self._diagnostics_sections(devices),
+            model_rows=self.model_diagnostics_rows(),
+            devices=devices,
+        )
+
+    def _diagnostics_sections(
+        self,
+        devices: list[MicrophoneDevice],
+    ) -> list[tuple[str, list[tuple[str, str]]]]:
         selected = "Auto-detect"
         saved_device_available = self._microphone_device_key is None
-        for device in self.microphone_devices():
+        for device in devices:
             if device.key == self._microphone_device_key:
                 selected = device.label
                 saved_device_available = True
@@ -164,6 +185,10 @@ class AppController(QObject):
         if self._microphone_device_key is not None and not saved_device_available:
             selected = "Saved device is not currently available"
 
+        default_input = next(
+            (device.label for device in devices if device.is_default),
+            "None / unavailable",
+        )
         sample_width_bits = SAMPLE_WIDTH_BYTES * 8
         language = self._transcriber.config.language or "auto"
         settings_path = self._settings.fileName() or "OS default"
@@ -191,10 +216,10 @@ class AppController(QObject):
                 "Microphone",
                 [
                     ("Input mode", selected),
-                    ("System default input", self._recorder.default_microphone_device_label()),
+                    ("System default input", default_input),
                     ("Saved device key", self._microphone_device_key or "Auto-detect"),
                     ("Saved device available", "Yes" if saved_device_available else "No"),
-                    ("Detected input devices", str(len(self.microphone_devices()))),
+                    ("Detected input devices", str(len(devices))),
                     (
                         "Recording format",
                         f"{SAMPLE_RATE} Hz, {CHANNELS} channel, {sample_width_bits}-bit PCM",
@@ -829,14 +854,13 @@ class AppController(QObject):
     def _start_live_transcription(self, audio_path: Path) -> None:
         self._transcription_cancel.clear()
         self._live_chunk_queue = Queue(maxsize=LIVE_TRANSCRIPTION_QUEUE_LIMIT)
-        self._live_transcript_text = ""
         self._live_audio_path = audio_path
         self._live_transcript_path = self._transcriber.transcript_path_for(audio_path)
-        self._live_transcript_path.write_text("", encoding="utf-8")
+        self._live_transcript_writer = TranscriptWriter(self._live_transcript_path)
+        self._live_transcript_writer.reset()
         self._live_chunks_done = 0
         self._live_chunks_queued = 0
         self._live_chunks_dropped = 0
-        self._live_chunks_with_text = 0
         self._live_transcription_thread = Thread(
             target=self._run_live_transcription,
             name="LiveTranscriptionPipeline",
@@ -939,38 +963,22 @@ class AppController(QObject):
             return
 
         if self._live_transcript_path is not None:
+            chunks_with_text = (
+                self._live_transcript_writer.chunks_with_text
+                if self._live_transcript_writer is not None
+                else 0
+            )
             LOGGER.info(
-                f"Transcript saved from {self._live_chunks_with_text} live chunks. "
+                f"Transcript saved from {chunks_with_text} live chunks. "
                 f"dropped={self._live_chunks_dropped}",
             )
             self._live_audio_path = None
             self.transcription_finished.emit(str(self._live_transcript_path))
 
     def _append_live_transcript_text(self, text: str) -> str:
-        text = self._clean_next_text(self._live_transcript_text, text.strip())
-        if not text:
-            return self._live_transcript_text
-
-        prefix = "\n\n" if self._live_transcript_text else ""
-        self._live_transcript_text = f"{self._live_transcript_text}{prefix}{text}"
-        self._live_chunks_with_text += 1
-        if self._live_transcript_path is not None:
-            with self._live_transcript_path.open("a", encoding="utf-8") as transcript_file:
-                transcript_file.write(f"{prefix}{text}")
-        return self._live_transcript_text
-
-    @staticmethod
-    def _clean_next_text(existing_text: str, next_text: str) -> str:
-        if not existing_text or not next_text:
-            return next_text
-
-        previous_words = existing_text.rsplit("\n\n", maxsplit=1)[-1].split()
-        current_words = next_text.split()
-        max_overlap = min(len(previous_words), len(current_words), 8)
-        for size in range(max_overlap, 0, -1):
-            if previous_words[-size:] == current_words[:size]:
-                return " ".join(current_words[size:])
-        return next_text
+        if self._live_transcript_writer is None:
+            return ""
+        return self._live_transcript_writer.append(text, clean_overlap=True)
 
     def _handle_transcription_progress(
         self,

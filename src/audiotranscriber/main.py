@@ -5,6 +5,7 @@ from __future__ import annotations
 import ctypes
 import logging
 import sys
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from PySide6.QtGui import QIcon
@@ -57,7 +58,12 @@ def _configure_logging(config) -> None:  # noqa: ANN001
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         handlers=[
-            logging.FileHandler(log_dir / "AudioTranscriber.log", encoding="utf-8"),
+            RotatingFileHandler(
+                log_dir / "AudioTranscriber.log",
+                maxBytes=1_000_000,
+                backupCount=3,
+                encoding="utf-8",
+            ),
         ],
     )
 

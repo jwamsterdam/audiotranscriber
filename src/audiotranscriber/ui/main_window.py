@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ctypes
+import sys
 from html import escape
 from pathlib import Path
 
@@ -33,6 +35,7 @@ from PySide6.QtWidgets import (
 
 from audiotranscriber.app_config import AppConfig
 from audiotranscriber.controllers.app_controller import AppController
+from audiotranscriber.pipelines.recording import MicrophoneDevice
 from audiotranscriber.resources import resource_path
 from audiotranscriber.state import (
     InputSource,
@@ -81,6 +84,8 @@ class RecorderStripWindow(QMainWindow):
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.Window
+            | Qt.WindowType.WindowSystemMenuHint
+            | Qt.WindowType.WindowMinimizeButtonHint
             | Qt.WindowType.WindowStaysOnTopHint
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
@@ -319,6 +324,10 @@ class RecorderStripWindow(QMainWindow):
             self._drag_position = None
             event.accept()
 
+    def showEvent(self, event) -> None:  # noqa: N802
+        super().showEvent(event)
+        _enable_windows_taskbar_minimize(self)
+
     def contextMenuEvent(self, event) -> None:  # noqa: N802
         menu = QMenu(self)
         menu.setObjectName("contextMenu")
@@ -382,6 +391,10 @@ class RecorderStripWindow(QMainWindow):
         menu.addAction(diagnostics_action)
 
         menu.addSeparator()
+
+        minimize_action = QAction("Minimize app", menu)
+        minimize_action.triggered.connect(self.showMinimized)
+        menu.addAction(minimize_action)
 
         close_action = QAction("Close app", menu)
         close_action.triggered.connect(self.close)
@@ -1050,6 +1063,7 @@ class DiagnosticsDialog(QDialog):
     def __init__(self, controller: AppController, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._controller = controller
+        self._diagnostics_snapshot = controller.diagnostics_snapshot()
         self._drag_position = None
         self.setWindowTitle("AudioTranscriber diagnostics")
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
@@ -1071,12 +1085,8 @@ class DiagnosticsDialog(QDialog):
         header_row.setSpacing(12)
         header = QLabel("Settings and diagnostics", frame)
         header.setObjectName("diagnosticsTitle")
-        close_header_button = QPushButton("Close", frame)
-        close_header_button.setObjectName("diagnosticsHeaderClose")
-        close_header_button.clicked.connect(self.accept)
         header_row.addWidget(header)
         header_row.addStretch(1)
-        header_row.addWidget(close_header_button)
         subtitle = QLabel(
             "Audio input, model settings, folders, and detected microphone devices.",
             frame,
@@ -1095,18 +1105,19 @@ class DiagnosticsDialog(QDialog):
         scroll_layout.setContentsMargins(0, 0, 0, 0)
         scroll_layout.setSpacing(12)
 
-        for title, rows in controller.diagnostics_sections():
+        for title, rows in self._diagnostics_snapshot.sections:
             scroll_layout.addWidget(self._section(title, rows, scroll_content))
         scroll_layout.addWidget(
             self._model_section(
                 "Transcription Models",
-                controller.model_diagnostics_rows(),
+                self._diagnostics_snapshot.model_rows,
                 scroll_content,
             )
         )
         scroll_layout.addWidget(
             self._device_section(
                 "Detected Input Devices",
+                self._diagnostics_snapshot.devices,
                 scroll_content,
             )
         )
@@ -1242,7 +1253,12 @@ class DiagnosticsDialog(QDialog):
         layout.addLayout(grid)
         return section
 
-    def _device_section(self, title: str, parent: QWidget) -> QFrame:
+    def _device_section(
+        self,
+        title: str,
+        devices: list[MicrophoneDevice],
+        parent: QWidget,
+    ) -> QFrame:
         section = QFrame(parent)
         section.setObjectName("diagnosticsSection")
         layout = QVBoxLayout(section)
@@ -1253,7 +1269,6 @@ class DiagnosticsDialog(QDialog):
         heading.setObjectName("diagnosticsSectionTitle")
         layout.addWidget(heading)
 
-        devices = self._controller.microphone_devices()
         if not devices:
             empty_label = QLabel("No input devices found", section)
             empty_label.setObjectName("diagnosticsValue")
@@ -1262,7 +1277,7 @@ class DiagnosticsDialog(QDialog):
 
         selected_key = self._controller.state.selected_microphone_device_key
         for index, device in enumerate(devices, start=1):
-            marker = " (selected)" if device.key == selected_key else ""
+            marker = _device_marker(device, selected_key)
             row = QFrame(section)
             row.setObjectName("diagnosticsDeviceRow")
             row_layout = QHBoxLayout(row)
@@ -1284,7 +1299,7 @@ class DiagnosticsDialog(QDialog):
 
     def _copy_diagnostics(self) -> None:
         sections = []
-        for title, rows in self._controller.diagnostics_sections():
+        for title, rows in self._diagnostics_snapshot.sections:
             sections.append(title)
             sections.extend(f"{label}: {value}" for label, value in rows)
             sections.append("")
@@ -1292,11 +1307,19 @@ class DiagnosticsDialog(QDialog):
         sections.append("Setting: Live translation | High quality")
         sections.extend(
             f"{label}: {live_value} | {high_quality_value}"
-            for label, live_value, high_quality_value in self._controller.model_diagnostics_rows()
+            for label, live_value, high_quality_value in self._diagnostics_snapshot.model_rows
         )
         sections.append("")
-        sections.append("Microphone diagnostics")
-        sections.append(self._controller.microphone_diagnostics())
+        sections.append("Detected Input Devices")
+        selected_key = self._controller.state.selected_microphone_device_key
+        if self._diagnostics_snapshot.devices:
+            sections.extend(
+                f"{index}. {_clean_device_name(device.name)}"
+                f"{_device_marker(device, selected_key)}"
+                for index, device in enumerate(self._diagnostics_snapshot.devices, start=1)
+            )
+        else:
+            sections.append("No input devices found")
         QApplication.clipboard().setText("\n".join(sections).strip())
 
     def _apply_styles(self) -> None:
@@ -1384,10 +1407,6 @@ class DiagnosticsDialog(QDialog):
                 background: rgba(255, 255, 255, 0.14);
             }
 
-            QPushButton#diagnosticsHeaderClose {
-                padding: 6px 12px;
-            }
-
             QScrollBar:vertical {
                 background: transparent;
                 width: 8px;
@@ -1406,3 +1425,36 @@ class DiagnosticsDialog(QDialog):
             }
             """
         )
+
+
+def _device_marker(device: MicrophoneDevice, selected_key: str | None) -> str:
+    markers = []
+    if device.is_default:
+        markers.append("default")
+    if device.key == selected_key:
+        markers.append("selected")
+    if not markers:
+        return ""
+    return f" ({', '.join(markers)})"
+
+
+def _enable_windows_taskbar_minimize(window: QWidget) -> None:
+    if sys.platform != "win32":
+        return
+
+    try:
+        hwnd = int(window.winId())
+        user32 = ctypes.windll.user32
+        get_window_long = getattr(user32, "GetWindowLongPtrW", user32.GetWindowLongW)
+        set_window_long = getattr(user32, "SetWindowLongPtrW", user32.SetWindowLongW)
+        get_window_long.restype = ctypes.c_ssize_t
+        set_window_long.restype = ctypes.c_ssize_t
+
+        style_index = -16  # GWL_STYLE
+        system_menu = 0x00080000  # WS_SYSMENU
+        minimize_box = 0x00020000  # WS_MINIMIZEBOX
+        style = get_window_long(hwnd, style_index)
+        set_window_long(hwnd, style_index, style | system_menu | minimize_box)
+        user32.DrawMenuBar(hwnd)
+    except Exception:  # noqa: BLE001
+        return

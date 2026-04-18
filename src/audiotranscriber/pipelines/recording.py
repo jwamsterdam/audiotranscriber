@@ -35,6 +35,7 @@ class MicrophoneDevice:
     name: str
     host_api: str
     max_input_channels: int
+    is_default: bool = False
 
     @property
     def key(self) -> str:
@@ -109,11 +110,8 @@ class RecordingPipeline:
         lines = ["Detected input devices:"]
         for device in input_devices:
             marker = ""
-            try:
-                if sd.default.device[0] == device.index:
-                    marker += " (default)"
-            except Exception:  # noqa: BLE001
-                pass
+            if device.is_default:
+                marker += " (default)"
             if selected_device_key and device.key == selected_device_key:
                 marker += " (selected)"
             lines.append(
@@ -134,15 +132,11 @@ class RecordingPipeline:
 
         try:
             input_devices = _list_input_devices(sd)
-            default_input = sd.default.device[0]
         except Exception:  # noqa: BLE001
             return "None / unavailable"
 
-        if not isinstance(default_input, int) or default_input < 0:
-            return "None / unavailable"
-
         for device in input_devices:
-            if device.index == default_input:
+            if device.is_default:
                 return device.label
         return "None / unavailable"
 
@@ -431,6 +425,11 @@ def _list_input_devices(sd) -> list[MicrophoneDevice]:  # noqa: ANN001
     except Exception:  # noqa: BLE001
         host_apis = []
 
+    try:
+        default_input = sd.default.device[0]
+    except Exception:  # noqa: BLE001
+        default_input = None
+
     input_devices: list[MicrophoneDevice] = []
     for index, device in enumerate(devices):
         channels = int(device.get("max_input_channels", 0))
@@ -450,6 +449,7 @@ def _list_input_devices(sd) -> list[MicrophoneDevice]:  # noqa: ANN001
                 name=str(device.get("name", f"Input device {index}")),
                 host_api=host_api_name,
                 max_input_channels=channels,
+                is_default=isinstance(default_input, int) and index == default_input,
             )
         )
 
