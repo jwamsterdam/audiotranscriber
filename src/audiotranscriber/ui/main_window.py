@@ -45,7 +45,7 @@ from audiotranscriber.ui.widgets import (
     RED,
     YELLOW,
     IconKind,
-    StatusDot,
+    PrimaryRecordButton,
     StripIconButton,
     WaveformWidget,
 )
@@ -96,7 +96,6 @@ class RecorderStripWindow(QMainWindow):
         strip_layout.setContentsMargins(22, 6, 18, 6)
         strip_layout.setSpacing(12)
 
-        self.status_dot = StatusDot(self.strip)
         self.waveform = WaveformWidget(self.strip)
         self.timer_label = QLabel("00:00:00", self.strip)
         self.timer_label.setObjectName("timerLabel")
@@ -126,7 +125,7 @@ class RecorderStripWindow(QMainWindow):
         self._set_language_button_text(TranscriptionLanguage.AUTO)
         self.stop_button = StripIconButton(IconKind.STOP, self.strip)
         self.pause_button = StripIconButton(IconKind.PAUSE, self.strip)
-        self.record_button = StripIconButton(IconKind.RECORD, self.strip)
+        self.record_button = PrimaryRecordButton(self.strip)
         self.expand_button = StripIconButton(IconKind.EXPAND, self.strip)
 
         separator = QFrame(self.strip)
@@ -134,7 +133,6 @@ class RecorderStripWindow(QMainWindow):
         separator.setFixedWidth(1)
         separator.setFixedHeight(30)
 
-        strip_layout.addWidget(self.status_dot)
         strip_layout.addWidget(self.waveform, 1)
         strip_layout.addWidget(self.timer_label)
         strip_layout.addWidget(self.language_button)
@@ -149,7 +147,7 @@ class RecorderStripWindow(QMainWindow):
         self.transcript_panel.setMaximumHeight(0)
         self.transcript_panel.setMinimumHeight(0)
         self.panel_layout = QVBoxLayout(self.transcript_panel)
-        self.panel_layout.setContentsMargins(28, 17, 28, 22)
+        self.panel_layout.setContentsMargins(28, 18, 28, 22)
         self.panel_layout.setSpacing(12)
 
         panel_header = QHBoxLayout()
@@ -189,6 +187,8 @@ class RecorderStripWindow(QMainWindow):
 
         layout.addWidget(self.strip)
         layout.addWidget(self.transcript_panel)
+        layout.setStretch(0, 0)
+        layout.setStretch(1, 1)
         self.setCentralWidget(root)
 
         self._apply_styles()
@@ -204,10 +204,17 @@ class RecorderStripWindow(QMainWindow):
         controller.emit_current_state()
 
     def apply_state(self, state: RecorderState) -> None:
-        self.status_dot.set_status(state.status)
+        self.record_button.set_status(state.status)
         self.waveform.set_status(state.status)
         self.waveform.set_level(state.audio_level)
         self.timer_label.setText(self._format_elapsed(state.elapsed_seconds))
+        self.record_button.setEnabled(
+            state.status
+            not in {
+                RecorderStatus.RECORDING,
+                RecorderStatus.PROCESSING,
+            }
+        )
         self._apply_language_state(state)
         self._set_transcript_text(state.preview_text)
         self.expand_button.set_kind(IconKind.COLLAPSE if state.transcript_open else IconKind.EXPAND)
@@ -491,7 +498,7 @@ class RecorderStripWindow(QMainWindow):
 
     def _connect_buttons(self) -> None:
         self.record_button.clicked.connect(self._record_clicked)
-        self.pause_button.clicked.connect(lambda: self._controller and self._controller.pause())
+        self.pause_button.clicked.connect(self._pause_clicked)
         self.stop_button.clicked.connect(self._stop_clicked)
         self.expand_button.clicked.connect(lambda: self._controller and self._controller.toggle_transcript())
 
@@ -527,6 +534,7 @@ class RecorderStripWindow(QMainWindow):
             QFrame#strip[expanded="true"] {
                 border-bottom-left-radius: 0;
                 border-bottom-right-radius: 0;
+                margin-bottom: 0;
             }
 
             QFrame#separator {
@@ -578,9 +586,10 @@ class RecorderStripWindow(QMainWindow):
 
             QFrame#transcriptPanel {
                 background: #151a1d;
-                border-top: 1px solid rgba(255, 255, 255, 0.08);
+                border-top: none;
                 border-bottom-left-radius: 24px;
                 border-bottom-right-radius: 24px;
+                margin-top: -1px;
             }
 
             QLabel#previewStatus {
@@ -812,12 +821,34 @@ class RecorderStripWindow(QMainWindow):
         if self._controller is None:
             return
 
+        previous_status = self._controller.state.status
         self._controller.record()
         if self._controller.state.status == RecorderStatus.RECORDING:
             if self._controller.state.input_source == InputSource.DEV_SAMPLE:
-                self._play_dev_sample()
+                if previous_status == RecorderStatus.PAUSED:
+                    self._media_player.play()
+                else:
+                    self._play_dev_sample()
             else:
                 self._media_player.stop()
+
+    def _pause_clicked(self) -> None:
+        if self._controller is None:
+            return
+
+        was_recording_dev_sample = (
+            self._controller.state.status == RecorderStatus.RECORDING
+            and self._controller.state.input_source == InputSource.DEV_SAMPLE
+        )
+        was_paused_dev_sample = (
+            self._controller.state.status == RecorderStatus.PAUSED
+            and self._controller.state.input_source == InputSource.DEV_SAMPLE
+        )
+        self._controller.pause()
+        if was_recording_dev_sample:
+            self._media_player.pause()
+        elif was_paused_dev_sample and self._controller.state.status == RecorderStatus.RECORDING:
+            self._media_player.play()
 
     def _stop_clicked(self) -> None:
         if self._controller is None:
@@ -909,7 +940,8 @@ class RecorderStripWindow(QMainWindow):
         self._sync_window_height(target_height, anchor)
 
     def _sync_window_height(self, panel_height: int, anchor) -> None:  # noqa: ANN001
-        self.setFixedHeight(self.strip.height() + max(0, panel_height))
+        overlap = 1 if panel_height > 0 else 0
+        self.setFixedHeight(self.strip.height() + max(0, panel_height) - overlap)
         if self._snapped_to_top:
             screen = self.screen() or QApplication.primaryScreen()
             top = screen.availableGeometry().top() if screen is not None else self._snap_screen_top

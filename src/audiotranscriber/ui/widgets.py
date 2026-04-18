@@ -85,6 +85,66 @@ class StatusDot(QWidget):
         painter.drawEllipse(center, 10, 10)
 
 
+class PrimaryRecordButton(QAbstractButton):
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._status = RecorderStatus.IDLE
+        self._pulse = 0.0
+        self._pulse_timer = QTimer(self)
+        self._pulse_timer.setInterval(90)
+        self._pulse_timer.timeout.connect(self._advance_pulse)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setCheckable(False)
+        self.setFixedSize(56, 56)
+
+    def set_status(self, status: RecorderStatus) -> None:
+        self._status = status
+        if status in {RecorderStatus.RECORDING, RecorderStatus.PROCESSING}:
+            self._pulse_timer.start()
+        else:
+            self._pulse_timer.stop()
+            self._pulse = 0.0
+        self.update()
+
+    def sizeHint(self) -> QSize:  # noqa: N802
+        return QSize(56, 56)
+
+    def _advance_pulse(self) -> None:
+        self._pulse = (self._pulse + 0.08) % 1.0
+        self.update()
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        del event
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        color = YELLOW if self._status in {RecorderStatus.PROCESSING, RecorderStatus.PAUSED} else RED
+        center = QPointF(self.width() / 2, self.height() / 2)
+
+        if self._status in {RecorderStatus.RECORDING, RecorderStatus.PROCESSING}:
+            pulse_radius = 15 + self._pulse * 15
+            pulse_alpha = int(30 * (1.0 - self._pulse))
+            pulse = QColor(color)
+            pulse.setAlpha(max(0, pulse_alpha))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(QPen(pulse, 3))
+            painter.drawEllipse(center, pulse_radius, pulse_radius)
+
+        halo = QColor(color)
+        halo.setAlpha(34 if self._status in {RecorderStatus.RECORDING, RecorderStatus.PROCESSING} else 22)
+        if self.isDown():
+            halo.setAlpha(52)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(halo)
+        painter.drawEllipse(center, 22, 22)
+
+        core = QColor(color)
+        core.setAlpha(245)
+        painter.setBrush(core)
+        painter.drawEllipse(center, 11, 11)
+
+
 class WaveformWidget(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -202,7 +262,9 @@ class StripIconButton(QAbstractButton):
             painter.drawEllipse(center, 10, 10)
             return
 
-        pen = QPen(INK, 5)
+        icon_color = QColor("#c8cdd0") if self._kind in {IconKind.EXPAND, IconKind.COLLAPSE} else INK
+        icon_width = 3 if self._kind in {IconKind.EXPAND, IconKind.COLLAPSE} else 5
+        pen = QPen(icon_color, icon_width)
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
         painter.setPen(pen)

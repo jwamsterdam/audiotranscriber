@@ -2,6 +2,10 @@
 
 All notable changes to AudioTranscriber will be documented in this file.
 
+## Unreleased
+
+- Replaced the separate strip status dot and record button with one primary status/action button: red while idle or recording, yellow while processing, with subtle pulsing during active states.
+
 ## 0.1.5 - High-Quality VAD Packaging Fix
 
 - Included faster-whisper assets in the Windows build so high-quality transcription with VAD can load `silero_vad_v6.onnx` from packaged installs.
