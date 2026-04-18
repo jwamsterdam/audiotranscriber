@@ -4,6 +4,10 @@ All notable changes to AudioTranscriber will be documented in this file.
 
 ## Unreleased
 
+_No unreleased changes._
+
+## Released
+
 ## 0.1.6 - Calmer Recording Strip and Messages
 
 - Replaced the separate strip status dot and record button with one primary status/action button: red while idle or recording, yellow while processing, with subtle pulsing during active states.
@@ -35,7 +39,7 @@ All notable changes to AudioTranscriber will be documented in this file.
 - Added the app icon to the PyInstaller executable, installer, and runtime window metadata.
 - Updated app/package/installer version metadata to `0.1.1`.
 
-## 0.1.0 - Phase 1 MVP
+## 0.1.0 - Initial MVP
 
 - Added PySide6 project scaffold with `src/` package layout.
 - Added compact floating recorder strip UI based on the supplied screenshot.
@@ -45,11 +49,11 @@ All notable changes to AudioTranscriber will be documented in this file.
 - Added timer display and lightweight animated waveform preview.
 - Added modular placeholders for future recording and transcription pipelines.
 - Added Windows one-command launchers: `run.ps1` and `run.bat`.
-- Documented Phase 1 run instructions in `README.md`.
+- Documented initial run instructions in `README.md`.
 
 ### Fixed
 
-- Widened the Phase 1 strip to prevent the waveform from overlapping the timer.
+- Widened the initial strip to prevent the waveform from overlapping the timer.
 - Increased the expanded transcript panel height so the preview text is not clipped.
 - Added a right-click context menu with a `Close app` action.
 - Added `Esc` as a keyboard shortcut to close the app.
@@ -60,7 +64,12 @@ All notable changes to AudioTranscriber will be documented in this file.
 - Increased the expanded transcript panel's measured height so wrapped preview text remains readable.
 - Added a dependency-free dev watcher for restart-on-save UI iteration.
 
-## 0.2.0 - Phase 2 Recording MVP
+## Early Development Notes
+
+These notes describe development milestones that happened before the numbered
+`0.1.x` release line settled.
+
+### Recording MVP
 
 - Added timestamped raw WAV recording to `recordings/`.
 - Added built-in test tone input for machines without a microphone.
@@ -76,7 +85,7 @@ All notable changes to AudioTranscriber will be documented in this file.
 - Kept the saved recording message visible after the short processing state.
 - Ignored `dev_samples/` and added context menu actions for selecting development audio samples.
 
-## 0.3.0 - Phase 3 Transcription MVP
+### Transcription MVP
 
 - Added chunked background transcription using `faster-whisper`.
 - Set default transcription config to `base`, `cpu`, and `int8`.

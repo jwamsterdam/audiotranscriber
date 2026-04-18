@@ -1,76 +1,102 @@
 # Agent Notes
 
-This project is a lightweight local desktop recorder and transcription strip.
+AudioTranscriber is a lightweight local desktop recorder and transcription strip.
+It is designed for interviews and sensitive conversations where recordings and
+transcripts should stay on the user's machine.
 
-## Current Phase
+## Current Product State
 
-Phase 3.5 is in progress. The app has a PySide6 UI, local WAV recording, a test tone input
-for machines without a microphone, optional microphone input through `sounddevice`, a timer,
-audio level preview, a collapsible transcript panel, and chunked `faster-whisper`
-transcription.
+- PySide6 desktop app with a compact floating strip.
+- Default transcript panel state is collapsed.
+- Expanded transcript panel opens below the strip.
+- The strip can magnetically snap to the top screen edge and release when pulled down.
+- One primary record/status button:
+  - red while idle or recording;
+  - yellow while processing/transcribing;
+  - subtle pulse during recording/processing.
+- Stop and pause are separate controls.
+- Collapsed mode uses a compact 7-bar waveform.
+- Expanded mode uses a wider, calmer waveform.
+- Live captions are white.
+- System and error messages are light grey and should not use techy labels.
+- Keep the app compact, calm, and utility-like.
+
+## Privacy And Local-First Behavior
+
+- Recordings are local.
+- Transcripts are local.
+- `faster-whisper` transcription runs locally.
+- Do not add cloud transcription, telemetry, or upload behavior unless the user explicitly asks.
+- GitHub Releases update checks are allowed in production and must not upload audio or transcript content.
+- Whisper model files may be downloaded on first use or when the user refreshes the local model cache.
 
 ## Architecture
 
 - UI lives in `src/audiotranscriber/ui/`.
 - App state lives in `src/audiotranscriber/state.py`.
 - Controller logic lives in `src/audiotranscriber/controllers/`.
-- Recording pipeline work should go in `src/audiotranscriber/pipelines/recording.py`.
-- Transcription pipeline work should go in `src/audiotranscriber/pipelines/transcription.py`.
+- Recording pipeline work goes in `src/audiotranscriber/pipelines/recording.py`.
+- Transcription pipeline work goes in `src/audiotranscriber/pipelines/transcription.py`.
+- Post-processing work goes in `src/audiotranscriber/pipelines/post_processing.py`.
+- Runtime/build profile behavior lives in `src/audiotranscriber/app_config.py`.
+- Keep UI, recording, transcription, post-processing, and controller responsibilities separate.
 
-Keep the UI, recording pipeline, transcription pipeline, and controller responsibilities separate.
+## Recording And Transcription Behavior
 
-## Product Direction
-
-- Keep the app compact, calm, and utility-like.
-- Match the supplied screenshot as the primary visual reference.
-- Default transcript state should stay collapsed.
-- Expanded transcript should open below the strip.
-- The floating strip can magnetically snap to the top screen edge and release when pulled down.
-- Status colors:
-  - Green: idle / ready.
-  - Red blinking: recording.
-  - Yellow: processing / transcribing.
-- Be honest about chunked transcription. Show it as preview/recent transcript, not perfect live dictation.
-
-## Phase Plan
-
-Phase 2:
-
-- Current raw format is WAV, 16 kHz, mono, 16-bit PCM.
-- Microphone input is the default.
-- Test tone input is available from the right-click menu.
-- Microphone input is available from the right-click menu where a device exists.
-- Recordings are saved in `recordings/` and should not be committed.
+- Raw recording format is WAV, 16 kHz, mono, 16-bit PCM.
+- Microphone input is the production default.
+- In dev profile, test tone and dev sample inputs are available from the right-click menu.
+- Recordings are saved in `recordings/` in dev and should not be committed.
+- Production recordings are saved in `Documents/AudioTranscriber/Recordings`.
 - Development audio samples live in `dev_samples/` and should not be committed.
-- The UI can select a dev sample from the right-click menu for Phase 3 transcription work.
+- Do not create empty WAV/TXT artifacts when microphone startup fails.
+- The record button must not start a second recording while recording or processing.
+- Pause should allow resume through the record button.
+- Stop should stop recording or cancel processing.
 
-Phase 3:
+Live transcription:
 
-- Default config is `model=base`, `device=cpu`, `compute_type=int8`.
-- Live preview chunks are currently 4 seconds for more responsive updates while recording.
-- The main strip language selector supports auto-detect, Dutch (`nl`), and English (`en`),
-  and can be changed while recording so future chunks use the updated language.
+- Uses `base`, `cpu`, `int8`.
+- `cpu_threads=0`.
+- `vad_filter=false`.
+- `beam_size=1`.
+- Live preview chunks are 4 seconds.
+- The language selector supports auto-detect, Dutch (`nl`), and English (`en`).
+- Language can be changed while recording so future chunks use the updated language.
 - Transcripts are saved incrementally as `.txt` next to the recorded audio file.
-- Dev samples in `dev_samples/` can be selected from the right-click menu.
-- Dev samples can be used directly as an input source for end-to-end recording/transcription tests.
 - Near-real-time preview is chunk-based and updates from completed chunks while recording.
-- After stop, queued live chunks are drained and saved. Do not start a second transcription pass
-  for the normal recording flow.
-- UI transcript updates preserve scroll position unless the user is already at the bottom.
-- Post-processing is separate from live recording and starts by selecting a WAV file.
-- MP3 backup uses `*.backup.mp3`.
-- MP3 backup resolves ffmpeg from the system PATH first and then from `imageio-ffmpeg`,
-  which is the packaging-friendly fallback.
-- High-quality transcript uses the user-facing `*.high-quality.txt` filename and internally
-  maps to faster-whisper `small`, `cpu`, `int8`, 15-second chunks.
+- After stop, queued live chunks are drained and saved. Do not start a second transcription pass for the normal recording flow.
+- UI transcript updates should preserve scroll position unless the user is already at the bottom.
 
-Phase 4:
+High-quality transcription:
 
-- Export/finalize MP3.
-- Add polish, error handling, and settings cleanup.
-- Prepare for packaging on Windows and macOS.
+- Starts separately by selecting a WAV file.
+- Uses user-facing `*.high-quality.txt` output.
+- Uses `small`, `cpu`, `int8`, 15-second chunks.
+- Uses `vad_filter=true`.
+- Uses `beam_size=1`.
+- Uses the physical-core CPU thread formula:
+  - physical <= 2: use all physical cores;
+  - physical <= 4: keep one physical core free;
+  - physical > 4: cap at 4 threads.
 
-## Development
+MP3 backup:
+
+- Starts separately by selecting a WAV file.
+- Uses `*.backup.mp3`.
+- Resolves ffmpeg from the system PATH first and then from `imageio-ffmpeg`.
+
+## Microphone And Diagnostics
+
+- Production context menu has a `Microphone input` submenu.
+- The user can select `Auto-detect` or a detected input device.
+- The selected microphone device is saved in user settings.
+- If no explicit device is selected, auto-detect uses the Windows default input when valid, otherwise falls back to the first available input device.
+- Recording uses the selected device explicitly.
+- The settings and diagnostics dialog is dark, frameless, and movable.
+- Diagnostics should include app paths, system CPU/memory, microphone settings, detected input devices, and live/high-quality model settings.
+
+## Runtime Profiles
 
 Use the one-command Windows runner when possible:
 
@@ -80,14 +106,15 @@ Use the one-command Windows runner when possible:
 
 `run.ps1`, `dev.ps1`, and `run.bat` set `AUDIOTRANSCRIBER_PROFILE=dev`.
 Frozen/packaged builds default to `prod` unless the environment variable overrides it.
-Profile behavior lives in `src/audiotranscriber/app_config.py`.
 
 Dev profile:
+
 - Uses project-local `recordings/`.
-- Keeps input selector, test tone, and dev sample menu actions.
-- Uses `.models/` for the faster-whisper cache.
+- Uses project-local `.models/`.
+- Shows input selector, test tone, and dev sample menu actions.
 
 Prod profile:
+
 - Uses microphone input only.
 - Hides dev sample/test input menu actions.
 - Stores recordings in `Documents/AudioTranscriber/Recordings`.
@@ -116,12 +143,31 @@ pip install -e .
 python -m audiotranscriber.main
 ```
 
+## Build And Release
+
+- Current release target is `0.1.6`.
+- Build from `C:\Users\jwhen\Desktop\audiotranscriber`, not the old OneDrive desktop path.
+- Close running `AudioTranscriber.exe` before building.
+- Windows build:
+
+```powershell
+.\build-windows.ps1
+.\package-windows.ps1
+Compress-Archive -Path .\dist\AudioTranscriber\* -DestinationPath .\installer\AudioTranscriber-v0.1.6-windows.zip -Force
+```
+
+- Expected installer: `installer\AudioTranscriberSetup-v0.1.6.exe`.
+- Expected portable zip: `installer\AudioTranscriber-v0.1.6-windows.zip`.
+- Build scripts set `TEMP` and `TMP` to `.tmp\build` to avoid Windows temp-permission issues.
+
 ## Implementation Preferences
 
 - Prefer simple, stable Python dependencies.
 - Use PySide6 for GUI work.
-- Use faster-whisper for transcription in Phase 3.
+- Use `faster-whisper` for transcription.
 - Use ffmpeg where appropriate for conversion/export.
-- For Phase 2 capture, prefer a Python-accessible recording backend first if it is simpler and more reliable cross-platform than controlling ffmpeg directly.
+- Prefer Python-accessible audio capture through `sounddevice`.
 - Avoid heavy visuals or complex spectrum analysis.
-- Keep code modular enough for later packaging.
+- Keep styling compact, calm, and readable.
+- Keep user-facing text in Dutch where the surrounding UI is Dutch.
+- Do not reintroduce phase-split documentation unless the user asks for it.

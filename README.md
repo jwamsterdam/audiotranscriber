@@ -1,32 +1,66 @@
 # AudioTranscriber
 
-Compact local desktop recorder and transcription strip for interviews, notes, and
-conversations.
+AudioTranscriber is a compact local desktop recorder and transcription strip for
+interviews, notes, meetings, and conversations.
 
-AudioTranscriber records WAV audio locally, creates chunked transcripts with
-`faster-whisper`, and stays out of the way as a small floating PySide6 strip.
+It records audio locally, transcribes locally with `faster-whisper`, and keeps a
+small floating PySide6 strip on screen while you work.
+
+## Privacy
+
+AudioTranscriber is designed for sensitive conversations.
+
+- Recordings are stored locally on your computer.
+- Transcripts are stored locally on your computer.
+- Whisper transcription runs locally through `faster-whisper`.
+- Audio and transcript content are not sent to a cloud transcription service.
+- Production builds only check GitHub Releases for app updates; this does not upload
+  recordings or transcript text.
+- Whisper model files may be downloaded on first use or after refreshing the local
+  model cache.
+
+## Screenshots
+
+Collapsed recorder strip:
+
+![AudioTranscriber collapsed](docs/screenshots/audio-transcriber-collapsed.png)
+
+Expanded live captions:
+
+![AudioTranscriber expanded](docs/screenshots/audio-transcriber-expanded.png)
 
 ## Features
 
-- Floating compact recorder strip with dark rounded styling.
+- Compact floating recorder strip with dark rounded styling.
+- Default collapsed state for low distraction during interviews.
+- Quick expand/collapse animation for the live captions panel.
 - Magnetic snap to the top screen edge, with release when pulled down.
-- Green ready, blinking red recording, and yellow processing status indicators.
-- Timer and lightweight audio level preview.
-- Collapsible transcript panel below the strip.
+- One primary record/status button:
+  - red while idle or recording;
+  - yellow while processing;
+  - subtle pulsing during recording and processing.
+- Stop and pause controls.
+- Timer and lightweight waveform preview.
+- Compact 7-bar waveform in collapsed mode.
+- Reduced waveform amplitude in expanded mode to keep focus on the conversation.
 - Local WAV recording at 16 kHz, mono, 16-bit PCM.
 - Microphone recording through `sounddevice`.
 - Right-click `Microphone input` menu with:
-  - `Auto-detect`
-  - explicit input-device choices
-  - remembered device selection in user settings
-  - fallback to auto-detect when no device is selected
-- Settings and diagnostics screen with microphone devices, app paths, and model settings.
+  - `Auto-detect`;
+  - explicit input-device choices;
+  - remembered device selection in user settings;
+  - fallback to auto-detect when no device is selected.
+- Settings and diagnostics screen with app paths, system information, microphone
+  devices, selected input, and transcription model settings.
 - Near-real-time transcript preview from completed recording chunks.
-- Incremental `.txt` transcript saving next to the recorded audio.
+- Incremental `.txt` transcript saving next to the recorded WAV.
 - Language selector on the strip: `AUTO`, `NL`, or `EN`.
-- Language can be changed while recording; future chunks use the new selection.
+- Language can be changed while recording; future chunks use the new setting.
+- User-friendly local/system messages in the transcript panel:
+  - live captions are shown in white;
+  - system and error messages are shown more quietly in light grey.
 - Post-processing for saved WAV files:
-  - `WAV to MP3 Backup` creates `*.backup.mp3`.
+  - `WAV to MP3 Backup` creates `*.backup.mp3`;
   - `WAV to High Quality Transcript` creates `*.high-quality.txt`.
 - GitHub Releases update check in production builds.
 - Model cache refresh action for clearing local Whisper model files.
@@ -46,22 +80,26 @@ Recordings are saved as:
 WAV, 16 kHz, mono, 16-bit PCM
 ```
 
-Transcription defaults:
+Live transcription defaults:
 
 ```text
 model=base
 device=cpu
 compute_type=int8
+cpu_threads=0
+vad_filter=false
+beam_size=1
 live_chunk_seconds=4
 language=auto | nl | en
+output=*.txt
 ```
 
-The live transcript is chunk-based. It is intended as a recent preview while recording,
-not perfect live dictation. When recording stops, queued live chunks are drained and the
-same live transcription path is saved. The normal recording flow does not start a second
+The live transcript is chunk-based. It is intended as a recent preview while
+recording, not perfect live dictation. When recording stops, queued live chunks
+are drained and saved. The normal recording flow does not start a second
 transcription pass after stop.
 
-High-quality transcription uses:
+High-quality transcription defaults:
 
 ```text
 model=small
@@ -69,8 +107,17 @@ device=cpu
 compute_type=int8
 cpu_threads=physical-core formula, capped at 4
 vad_filter=true
+beam_size=1
 chunk_seconds=15
 output=*.high-quality.txt
+```
+
+The high-quality CPU thread formula uses physical cores:
+
+```text
+physical <= 2  -> use all physical cores
+physical <= 4  -> keep 1 physical core free
+physical > 4   -> cap at 4 threads
 ```
 
 MP3 backup uses ffmpeg from the system `PATH` first, then falls back to
@@ -195,8 +242,8 @@ Output:
 installer\AudioTranscriberSetup-v0.1.6.exe
 ```
 
-`package-windows.ps1` runs the production folder build first, then uses Inno Setup 6
-when it is installed. The installer is per-user and installs to:
+`package-windows.ps1` runs the production folder build first, then uses Inno Setup
+6 when it is installed. The installer is per-user and installs to:
 
 ```text
 %LOCALAPPDATA%\Programs\AudioTranscriber
@@ -241,7 +288,7 @@ Commit and tag:
 
 ```powershell
 git status --short
-git add CHANGELOG.md README.md pyproject.toml installer-windows.iss package-windows.ps1 src\audiotranscriber
+git add CHANGELOG.md README.md AGENTS.md docs\screenshots pyproject.toml installer-windows.iss package-windows.ps1 src\audiotranscriber
 git commit -m "Prepare v0.1.6 recording strip polish"
 git tag -a v0.1.6 -m "AudioTranscriber v0.1.6"
 git push origin main
