@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import json
 import shutil
-import urllib.error
-import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -23,6 +20,10 @@ class UpdateInfo:
 
 
 def check_for_updates(update_repo: str, model_cache_dir: Path) -> UpdateInfo:
+    import json
+    import urllib.error
+    import urllib.request
+
     model_summary = model_cache_summary(model_cache_dir)
     release_url = f"https://github.com/{update_repo}/releases"
     api_url = f"https://api.github.com/repos/{update_repo}/releases/latest"

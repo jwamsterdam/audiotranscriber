@@ -10,7 +10,6 @@ from pathlib import Path
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt
 from PySide6.QtCore import QUrl
 from PySide6.QtGui import QAction, QActionGroup, QDesktopServices, QIcon
-from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -73,10 +72,8 @@ class RecorderStripWindow(QMainWindow):
         self._snap_screen_top = 0
         self._size_animation: QPropertyAnimation | None = None
         self._panel_animation: QPropertyAnimation | None = None
-        self._audio_output = QAudioOutput(self)
-        self._audio_output.setVolume(0.8)
-        self._media_player = QMediaPlayer(self)
-        self._media_player.setAudioOutput(self._audio_output)
+        self._audio_output = None
+        self._media_player = None
         self._last_preview_render_key: tuple[PreviewKind, str] | None = None
 
         self.setWindowTitle("AudioTranscriber")
@@ -500,10 +497,8 @@ class RecorderStripWindow(QMainWindow):
         menu.addAction(play_sample_action)
 
         stop_sample_action = QAction("Stop dev sample", menu)
-        stop_sample_action.setEnabled(
-            self._media_player.playbackState() != QMediaPlayer.PlaybackState.StoppedState
-        )
-        stop_sample_action.triggered.connect(self._media_player.stop)
+        stop_sample_action.setEnabled(self._dev_sample_is_playing())
+        stop_sample_action.triggered.connect(self._stop_dev_sample)
         menu.addAction(stop_sample_action)
         menu.addSeparator()
 
@@ -843,8 +838,29 @@ class RecorderStripWindow(QMainWindow):
         if path is None or not path.exists():
             return
 
-        self._media_player.setSource(QUrl.fromLocalFile(str(path.resolve())))
-        self._media_player.play()
+        media_player = self._ensure_media_player()
+        media_player.setSource(QUrl.fromLocalFile(str(path.resolve())))
+        media_player.play()
+
+    def _stop_dev_sample(self) -> None:
+        if self._media_player is not None:
+            self._media_player.stop()
+
+    def _dev_sample_is_playing(self) -> bool:
+        if self._media_player is None:
+            return False
+        stopped = type(self._media_player).PlaybackState.StoppedState
+        return self._media_player.playbackState() != stopped
+
+    def _ensure_media_player(self):  # noqa: ANN202
+        if self._media_player is None:
+            from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
+
+            self._audio_output = QAudioOutput(self)
+            self._audio_output.setVolume(0.8)
+            self._media_player = QMediaPlayer(self)
+            self._media_player.setAudioOutput(self._audio_output)
+        return self._media_player
 
     def _record_clicked(self) -> None:
         if self._controller is None:
@@ -855,11 +871,11 @@ class RecorderStripWindow(QMainWindow):
         if self._controller.state.status == RecorderStatus.RECORDING:
             if self._controller.state.input_source == InputSource.DEV_SAMPLE:
                 if previous_status == RecorderStatus.PAUSED:
-                    self._media_player.play()
+                    self._ensure_media_player().play()
                 else:
                     self._play_dev_sample()
             else:
-                self._media_player.stop()
+                self._stop_dev_sample()
 
     def _pause_clicked(self) -> None:
         if self._controller is None:
@@ -875,9 +891,9 @@ class RecorderStripWindow(QMainWindow):
         )
         self._controller.pause()
         if was_recording_dev_sample:
-            self._media_player.pause()
+            self._ensure_media_player().pause()
         elif was_paused_dev_sample and self._controller.state.status == RecorderStatus.RECORDING:
-            self._media_player.play()
+            self._ensure_media_player().play()
 
     def _stop_clicked(self) -> None:
         if self._controller is None:
@@ -889,7 +905,7 @@ class RecorderStripWindow(QMainWindow):
         )
         self._controller.stop()
         if was_recording_dev_sample:
-            self._media_player.stop()
+            self._stop_dev_sample()
 
     def _dev_sample_path(self) -> Path | None:
         if self._controller is None:

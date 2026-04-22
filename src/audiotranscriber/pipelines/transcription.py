@@ -7,8 +7,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from threading import Event
 
-import numpy as np
-
 from audiotranscriber.pipelines.transcript_writer import TranscriptWriter
 
 
@@ -114,6 +112,8 @@ class TranscriptionPipeline:
     def transcribe_pcm16_chunk(self, pcm_bytes: bytes) -> str:
         if not pcm_bytes:
             return ""
+
+        import numpy as np
 
         model = self._load_model()
         audio = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) / 32768.0
