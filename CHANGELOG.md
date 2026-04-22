@@ -8,7 +8,7 @@ _No unreleased changes._
 
 ## Released
 
-## 0.1.6 - Calmer Recording Strip and Messages
+## 0.1.7 - Calmer Recording Strip and High-Quality Transcription
 
 - Replaced the separate strip status dot and record button with one primary status/action button: red while idle or recording, yellow while processing, with subtle pulsing during active states.
 - Made the collapsed strip narrower with a compact 7-bar waveform, added quick expand/collapse animation, and reduced expanded waveform amplitude so the strip is less visually distracting.

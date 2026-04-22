@@ -26,4 +26,4 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host ""
 Write-Host "Installer complete:"
-Write-Host (Join-Path $ProjectRoot "installer\AudioTranscriberSetup-v0.1.6.exe")
+Write-Host (Join-Path $ProjectRoot "installer\AudioTranscriberSetup-v0.1.7.exe")
