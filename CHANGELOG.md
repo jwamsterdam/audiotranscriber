@@ -19,6 +19,8 @@ _No unreleased changes._
 - Added live-caption backlog protection, incremental transcript writes, and a long-WAV warning for high-quality transcription.
 - Centralized transcript file writing, added log rotation, and cached diagnostics data while the diagnostics window is open.
 - Improved startup time by lazy-loading transcription, update-check, and dev sample playback dependencies only when needed.
+- Changed high-quality transcription to use the full WAV with default faster-whisper decoding behavior on the `small` model, while keeping progress based on processed audio time.
+- Added estimated remaining time to high-quality transcription progress and conservative paragraph breaks from segment timing gaps.
 
 ## 0.1.5 - High-Quality VAD Packaging Fix
 

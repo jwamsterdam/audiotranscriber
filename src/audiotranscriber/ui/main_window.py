@@ -272,7 +272,7 @@ class RecorderStripWindow(QMainWindow):
                 progress = state.processing_progress_text or "bezig"
                 self.progress_bar.setRange(0, 0)
             self.preview_status.setText(status_label)
-            self.preview_age.setText(f"({progress}, laatste update: {age}s geleden)")
+            self.preview_age.setText(f"{progress}, laatste update: {age}s geleden")
         elif state.status == RecorderStatus.PAUSED:
             self.progress_bar.hide()
             self.preview_status.setText("Gepauzeerd")

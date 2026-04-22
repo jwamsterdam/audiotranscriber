@@ -17,7 +17,6 @@ from audiotranscriber.system_info import logical_cpu_threads, physical_cpu_cores
 
 HIGH_QUALITY_MODEL_NAME = "small"
 HIGH_QUALITY_MODEL_LABEL = "small"
-HIGH_QUALITY_CHUNK_SECONDS = 15
 MP3_BITRATE = "96k"
 ProgressCallback = Callable[[int, int], None]
 
@@ -39,10 +38,11 @@ def high_quality_transcription_config(
         device=DEFAULT_DEVICE,
         compute_type=DEFAULT_COMPUTE_TYPE,
         cpu_threads=high_quality_cpu_threads(),
-        chunk_seconds=HIGH_QUALITY_CHUNK_SECONDS,
+        chunk_seconds=None,
         language=language,
         model_cache_dir=model_cache_dir,
-        vad_filter=True,
+        vad_filter=False,
+        full_audio_defaults=True,
     )
 
 

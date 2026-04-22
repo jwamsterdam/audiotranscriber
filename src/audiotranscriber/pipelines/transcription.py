@@ -17,6 +17,7 @@ DEFAULT_CHUNK_SECONDS = 15
 DEFAULT_OVERLAP_SECONDS = 0
 DEFAULT_LANGUAGE: str | None = None
 SAMPLE_RATE = 16_000
+PARAGRAPH_GAP_SECONDS = 2.2
 
 ProgressCallback = Callable[[int, int, str, Path], None]
 
@@ -27,11 +28,12 @@ class TranscriptionConfig:
     device: str = DEFAULT_DEVICE
     compute_type: str = DEFAULT_COMPUTE_TYPE
     cpu_threads: int = 0
-    chunk_seconds: int = DEFAULT_CHUNK_SECONDS
+    chunk_seconds: int | None = DEFAULT_CHUNK_SECONDS
     overlap_seconds: int = DEFAULT_OVERLAP_SECONDS
     language: str | None = DEFAULT_LANGUAGE
     model_cache_dir: Path | None = None
     vad_filter: bool = False
+    full_audio_defaults: bool = False
 
 
 class TranscriptionPipeline:
@@ -59,6 +61,7 @@ class TranscriptionPipeline:
             language=language,
             model_cache_dir=self._config.model_cache_dir,
             vad_filter=self._config.vad_filter,
+            full_audio_defaults=self._config.full_audio_defaults,
         )
 
     def transcript_path_for(self, audio_path: Path) -> Path:
@@ -76,10 +79,18 @@ class TranscriptionPipeline:
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
 
         transcript_output_path = transcript_path or self.transcript_path_for(audio_path)
+        if self._config.full_audio_defaults:
+            return self._transcribe_full_audio(
+                audio_path,
+                transcript_output_path,
+                on_progress,
+                cancel_event,
+            )
 
         model = self._load_model()
         audio = self._decode_audio(audio_path)
-        chunk_frames = self._config.chunk_seconds * SAMPLE_RATE
+        chunk_seconds = self._config.chunk_seconds or DEFAULT_CHUNK_SECONDS
+        chunk_frames = chunk_seconds * SAMPLE_RATE
         overlap_frames = self._config.overlap_seconds * SAMPLE_RATE
         step_frames = max(1, chunk_frames - overlap_frames)
         total_chunks = max(1, (len(audio) + step_frames - 1) // step_frames)
@@ -106,6 +117,51 @@ class TranscriptionPipeline:
                 writer.append(text, clean_overlap=self._config.overlap_seconds > 0)
 
             on_progress(chunk_index, total_chunks, writer.text, writer.path)
+
+        return writer.path
+
+    def _transcribe_full_audio(
+        self,
+        audio_path: Path,
+        transcript_path: Path,
+        on_progress: ProgressCallback,
+        cancel_event: Event,
+    ) -> Path:
+        model = self._load_model()
+        segments, info = model.transcribe(
+            str(audio_path),
+            language=self._config.language,
+        )
+        total_seconds = max(1, round(float(getattr(info, "duration", 0.0) or 0.0)))
+        writer = TranscriptWriter(transcript_path)
+        writer.reset()
+        on_progress(0, total_seconds, writer.text, writer.path)
+
+        last_progress_second = 0
+        previous_segment_end: float | None = None
+        for segment in segments:
+            if cancel_event.is_set():
+                break
+
+            text = segment.text.strip()
+            if text:
+                segment_start = float(getattr(segment, "start", 0.0) or 0.0)
+                separator = (
+                    "\n\n"
+                    if previous_segment_end is not None
+                    and segment_start - previous_segment_end >= PARAGRAPH_GAP_SECONDS
+                    else " "
+                )
+                writer.append(text, separator=separator)
+
+            current_second = round(float(getattr(segment, "end", 0.0) or 0.0))
+            current_second = min(total_seconds, max(last_progress_second, current_second))
+            last_progress_second = current_second
+            previous_segment_end = float(getattr(segment, "end", 0.0) or 0.0)
+            on_progress(current_second, total_seconds, writer.text, writer.path)
+
+        if not cancel_event.is_set() and last_progress_second < total_seconds:
+            on_progress(total_seconds, total_seconds, writer.text, writer.path)
 
         return writer.path
 

@@ -20,14 +20,20 @@ class TranscriptWriter:
         self.text = ""
         self.chunks_with_text = 0
 
-    def append(self, text: str, *, clean_overlap: bool = False) -> str:
+    def append(
+        self,
+        text: str,
+        *,
+        clean_overlap: bool = False,
+        separator: str = "\n\n",
+    ) -> str:
         next_text = text.strip()
         if clean_overlap:
             next_text = clean_next_text(self.text, next_text)
         if not next_text:
             return self.text
 
-        prefix = "\n\n" if self.text else ""
+        prefix = separator if self.text else ""
         with self.path.open("a", encoding="utf-8") as transcript_file:
             transcript_file.write(f"{prefix}{next_text}")
 

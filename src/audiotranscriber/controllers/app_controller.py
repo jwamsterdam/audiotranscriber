@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import logging
+import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 from queue import Empty, Full, Queue
@@ -114,6 +115,7 @@ class AppController(QObject):
         self._live_chunks_done = 0
         self._live_chunks_queued = 0
         self._live_chunks_dropped = 0
+        self._high_quality_started_at: float | None = None
         self.level_detected.connect(self._set_audio_level)
         self.recording_failed.connect(self._handle_recording_failed)
         self.live_transcription_progress.connect(self._handle_live_transcription_progress)
@@ -256,7 +258,11 @@ class AppController(QObject):
             (
                 "Chunk length",
                 f"{LIVE_CHUNK_SECONDS} seconds",
-                f"{high_quality_config.chunk_seconds} seconds",
+                (
+                    "Full audio"
+                    if high_quality_config.full_audio_defaults
+                    else f"{high_quality_config.chunk_seconds} seconds"
+                ),
             ),
             ("Output", "*.txt", "*.high-quality.txt"),
         ]
@@ -654,6 +660,7 @@ class AppController(QObject):
         output_path = high_quality_transcript_path_for(target)
         duration_warning = _long_audio_warning(target)
         self._transcription_cancel.clear()
+        self._high_quality_started_at = time.monotonic()
         self._set_state(
             status=RecorderStatus.PROCESSING,
             transcript_open=True,
@@ -669,6 +676,7 @@ class AppController(QObject):
                 "Transcriptie in hoge kwaliteit voorbereiden...\n\n"
                 "Preset: hoge kwaliteit\n"
                 f"Model: {HIGH_QUALITY_MODEL_LABEL}\n"
+                "Decode: standaard faster-whisper instellingen, volledige WAV.\n"
                 "Model wordt indien nodig eenmalig gedownload.\n"
                 f"{duration_warning}"
                 f"Bron:\n{target}\n\n"
@@ -688,6 +696,7 @@ class AppController(QObject):
             f"compute_type={high_quality_config.compute_type} "
             f"cpu_threads={high_quality_config.cpu_threads} "
             f"vad_filter={high_quality_config.vad_filter} "
+            f"full_audio_defaults={high_quality_config.full_audio_defaults} "
             f"language={self._transcriber.config.language or 'auto'}"
         )
 
@@ -988,11 +997,24 @@ class AppController(QObject):
         transcript_path: str,
     ) -> None:
         latest_text = text.rsplit("\n\n", maxsplit=1)[-1].strip() if text.strip() else ""
+        high_quality_progress = (
+            _format_audio_progress(
+                current_chunk,
+                total_chunks,
+                _elapsed_seconds(self._high_quality_started_at),
+            )
+            if self._state.processing_label == "Transcriptie in hoge kwaliteit..."
+            else None
+        )
         if latest_text:
-            LOGGER.info("Transcription chunk %s/%s: text detected", current_chunk, total_chunks)
+            LOGGER.info(
+                "Transcription progress %s/%s: text detected",
+                current_chunk,
+                total_chunks,
+            )
         else:
             LOGGER.info(
-                "Transcription chunk %s/%s: no speech detected yet",
+                "Transcription progress %s/%s: no speech detected yet",
                 current_chunk,
                 total_chunks,
             )
@@ -1002,12 +1024,20 @@ class AppController(QObject):
             transcript_output_path=transcript_path,
             transcription_current_chunk=current_chunk,
             transcription_total_chunks=total_chunks,
+            processing_progress_text=high_quality_progress,
             preview_kind=PreviewKind.TRANSCRIPT if text else PreviewKind.SYSTEM,
             preview_text=(
                 text
                 or (
-                    f"Transcriberen chunk {current_chunk}/{total_chunks}...\n\n"
-                    "Nog geen spraak herkend in de verwerkte audio."
+                    (
+                        f"Transcriptie in hoge kwaliteit loopt... {high_quality_progress}\n\n"
+                        "Nog geen spraak herkend in de verwerkte audio."
+                    )
+                    if high_quality_progress
+                    else (
+                        f"Transcriberen chunk {current_chunk}/{total_chunks}...\n\n"
+                        "Nog geen spraak herkend in de verwerkte audio."
+                    )
                 )
             ),
         )
@@ -1065,6 +1095,7 @@ class AppController(QObject):
 
     def _handle_transcription_finished(self, transcript_path: str) -> None:
         self._preview_age_timer.stop()
+        self._high_quality_started_at = None
         LOGGER.info("Transcription finished: %s", transcript_path)
         text = self._state.preview_text
         saved_text = ""
@@ -1101,6 +1132,7 @@ class AppController(QObject):
 
     def _handle_transcription_failed(self, error: str) -> None:
         self._preview_age_timer.stop()
+        self._high_quality_started_at = None
         LOGGER.warning("Transcription failed: %s", error)
         self._set_state(
             status=RecorderStatus.IDLE,
@@ -1118,6 +1150,7 @@ class AppController(QObject):
 
     def _handle_transcription_cancelled(self, transcript_path: str) -> None:
         self._preview_age_timer.stop()
+        self._high_quality_started_at = None
         LOGGER.info("Transcription cancelled. Partial transcript: %s", transcript_path)
         self._set_state(
             status=RecorderStatus.IDLE,
@@ -1239,3 +1272,52 @@ def _long_audio_warning(audio_path: Path) -> str:
         "De hoge-kwaliteit transcriptie decodeert de audio lokaal en kan tijdelijk "
         "extra geheugen gebruiken.\n"
     )
+
+
+def _format_audio_progress(
+    current_seconds: int,
+    total_seconds: int,
+    elapsed_seconds: float | None,
+) -> str:
+    if total_seconds <= 0:
+        return "bezig"
+
+    current = max(0, min(current_seconds, total_seconds))
+    percent = round((current / total_seconds) * 100)
+    eta = _estimated_remaining_seconds(current, total_seconds, elapsed_seconds)
+    if eta is None:
+        remaining = "resterende tijd: berekenen..."
+    else:
+        remaining = f"resterende tijd: {_format_duration(eta)} minuten"
+    return (
+        f"{percent}% ({_format_duration(current)} / {_format_duration(total_seconds)}), "
+        f"{remaining}"
+    )
+
+
+def _elapsed_seconds(started_at: float | None) -> float | None:
+    if started_at is None:
+        return None
+    return max(0.0, time.monotonic() - started_at)
+
+
+def _estimated_remaining_seconds(
+    current_seconds: int,
+    total_seconds: int,
+    elapsed_seconds: float | None,
+) -> int | None:
+    if elapsed_seconds is None or elapsed_seconds <= 0 or current_seconds <= 0:
+        return None
+    remaining_audio_seconds = max(0, total_seconds - current_seconds)
+    if remaining_audio_seconds == 0:
+        return 0
+    seconds_per_audio_second = elapsed_seconds / current_seconds
+    return round(remaining_audio_seconds * seconds_per_audio_second)
+
+
+def _format_duration(seconds: int) -> str:
+    minutes, secs = divmod(max(0, seconds), 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours}:{minutes:02}:{secs:02}"
+    return f"{minutes}:{secs:02}"
