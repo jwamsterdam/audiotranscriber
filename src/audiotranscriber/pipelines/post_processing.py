@@ -15,8 +15,16 @@ from audiotranscriber.pipelines.transcription import (
 )
 from audiotranscriber.system_info import logical_cpu_threads, physical_cpu_cores
 
-HIGH_QUALITY_MODEL_NAME = "small"
-HIGH_QUALITY_MODEL_LABEL = "small"
+# High-quality transcript presets. "Fast" uses the small model; "Quality" uses
+# the Whisper large-v3-turbo model (better accuracy, slower, larger download).
+FAST_MODEL_NAME = "small"
+FAST_MODEL_LABEL = "small (fast)"
+QUALITY_MODEL_NAME = "large-v3-turbo"
+QUALITY_MODEL_LABEL = "large-v3-turbo (quality)"
+
+# Kept for backwards compatibility with existing callers/diagnostics.
+HIGH_QUALITY_MODEL_NAME = FAST_MODEL_NAME
+HIGH_QUALITY_MODEL_LABEL = FAST_MODEL_LABEL
 MP3_BITRATE = "96k"
 ProgressCallback = Callable[[int, int], None]
 
@@ -32,9 +40,10 @@ def high_quality_transcript_path_for(audio_path: Path) -> Path:
 def high_quality_transcription_config(
     language: str | None,
     model_cache_dir: Path | None = None,
+    model_name: str = HIGH_QUALITY_MODEL_NAME,
 ) -> TranscriptionConfig:
     return TranscriptionConfig(
-        model_name=HIGH_QUALITY_MODEL_NAME,
+        model_name=model_name,
         device=DEFAULT_DEVICE,
         compute_type=DEFAULT_COMPUTE_TYPE,
         cpu_threads=high_quality_cpu_threads(),

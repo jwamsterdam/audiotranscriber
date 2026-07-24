@@ -14,8 +14,9 @@ from PySide6.QtCore import QObject, QSettings, QTimer, Signal
 
 from audiotranscriber.app_config import AppConfig
 from audiotranscriber.pipelines.post_processing import (
-    HIGH_QUALITY_MODEL_LABEL,
-    HIGH_QUALITY_MODEL_NAME,
+    FAST_MODEL_LABEL,
+    FAST_MODEL_NAME,
+    QUALITY_MODEL_LABEL,
     backup_mp3_path_for,
     export_mp3_backup,
     high_quality_transcript_path_for,
@@ -116,6 +117,13 @@ class AppController(QObject):
         self._live_chunks_queued = 0
         self._live_chunks_dropped = 0
         self._high_quality_started_at: float | None = None
+        self._hq_queue: list[tuple[Path, Path]] = []
+        self._hq_total = 0
+        self._hq_current: tuple[Path, Path] | None = None
+        self._hq_done_paths: list[str] = []
+        self._hq_failures: list[tuple[str, str]] = []
+        self._hq_model_name: str = FAST_MODEL_NAME
+        self._hq_model_label: str = FAST_MODEL_LABEL
         self.level_detected.connect(self._set_audio_level)
         self.recording_failed.connect(self._handle_recording_failed)
         self.live_transcription_progress.connect(self._handle_live_transcription_progress)
@@ -237,7 +245,11 @@ class AppController(QObject):
             self._config.model_cache_dir,
         )
         return [
-            ("Model", self._transcriber.config.model_name, HIGH_QUALITY_MODEL_LABEL),
+            (
+                "Model",
+                self._transcriber.config.model_name,
+                f"{FAST_MODEL_LABEL} / {QUALITY_MODEL_LABEL}",
+            ),
             ("Device", self._transcriber.config.device, high_quality_config.device),
             (
                 "Compute type",
@@ -639,7 +651,29 @@ class AppController(QObject):
         )
         self._transcription_thread.start()
 
-    def create_high_quality_transcript_for(self, audio_path: Path) -> None:
+    def create_high_quality_transcript_for(
+        self,
+        audio_path: Path,
+        output_path: Path | None = None,
+        model_name: str = FAST_MODEL_NAME,
+        model_label: str = FAST_MODEL_LABEL,
+    ) -> None:
+        target = audio_path.resolve()
+        output = (
+            output_path.resolve()
+            if output_path is not None
+            else high_quality_transcript_path_for(target)
+        )
+        self.create_high_quality_transcripts_for(
+            [(target, output)], model_name=model_name, model_label=model_label
+        )
+
+    def create_high_quality_transcripts_for(
+        self,
+        pairs: list[tuple[Path, Path]],
+        model_name: str = FAST_MODEL_NAME,
+        model_label: str = FAST_MODEL_LABEL,
+    ) -> None:
         if self._state.status in {
             RecorderStatus.RECORDING,
             RecorderStatus.PAUSED,
@@ -647,17 +681,38 @@ class AppController(QObject):
         }:
             return
 
-        target = audio_path.resolve()
-        if not target.exists():
+        resolved: list[tuple[Path, Path]] = []
+        for source, output in pairs:
+            source = source.resolve()
+            if source.exists():
+                resolved.append((source, output.resolve()))
+
+        if not resolved:
             self._set_state(
-                error_message="Geen opname beschikbaar voor high-quality transcript.",
+                error_message="Geen audio beschikbaar voor high-quality transcript.",
                 preview_kind=PreviewKind.ERROR,
                 transcript_open=True,
-                preview_text=f"WAV-bestand niet gevonden:\n{target}",
+                preview_text="Geen van de geselecteerde audiobestanden is gevonden.",
             )
             return
 
-        output_path = high_quality_transcript_path_for(target)
+        self._hq_queue = resolved
+        self._hq_total = len(resolved)
+        self._hq_done_paths = []
+        self._hq_failures = []
+        self._hq_model_name = model_name
+        self._hq_model_label = model_label
+        self._start_next_high_quality()
+
+    def _start_next_high_quality(self) -> None:
+        target, output_path = self._hq_queue.pop(0)
+        self._hq_current = (target, output_path)
+        index = self._hq_total - len(self._hq_queue)
+        batch_prefix = (
+            f"Bestand {index} van {self._hq_total}: {target.name}\n\n"
+            if self._hq_total > 1
+            else ""
+        )
         duration_warning = _long_audio_warning(target)
         self._transcription_cancel.clear()
         self._high_quality_started_at = time.monotonic()
@@ -670,13 +725,17 @@ class AppController(QObject):
             transcript_output_path=str(output_path),
             transcription_current_chunk=0,
             transcription_total_chunks=0,
-            processing_label="Transcriptie in hoge kwaliteit...",
+            processing_label=(
+                f"Transcriptie in hoge kwaliteit ({index}/{self._hq_total})..."
+                if self._hq_total > 1
+                else "Transcriptie in hoge kwaliteit..."
+            ),
             processing_progress_text=None,
             preview_text=(
+                f"{batch_prefix}"
                 "Transcriptie in hoge kwaliteit voorbereiden...\n\n"
-                "Preset: hoge kwaliteit\n"
-                f"Model: {HIGH_QUALITY_MODEL_LABEL}\n"
-                "Decode: standaard faster-whisper instellingen, volledige WAV.\n"
+                f"Model: {self._hq_model_label}\n"
+                "Decode: standaard faster-whisper instellingen, volledige audio.\n"
                 "Model wordt indien nodig eenmalig gedownload.\n"
                 f"{duration_warning}"
                 f"Bron:\n{target}\n\n"
@@ -687,11 +746,13 @@ class AppController(QObject):
         high_quality_config = high_quality_transcription_config(
             self._transcriber.config.language,
             self._config.model_cache_dir,
+            model_name=self._hq_model_name,
         )
         LOGGER.info(
             "Starting high-quality transcript: "
             f"{target} "
-            f"model={HIGH_QUALITY_MODEL_NAME} "
+            f"({index}/{self._hq_total}) "
+            f"model={self._hq_model_name} "
             f"device={high_quality_config.device} "
             f"compute_type={high_quality_config.compute_type} "
             f"cpu_threads={high_quality_config.cpu_threads} "
@@ -702,7 +763,7 @@ class AppController(QObject):
 
         self._transcription_thread = Thread(
             target=self._run_high_quality_transcription,
-            args=(target,),
+            args=(target, output_path, self._hq_model_name),
             name="PostProcessHighQualityTranscript",
             daemon=True,
         )
@@ -812,12 +873,19 @@ class AppController(QObject):
 
         self.post_processing_finished.emit("MP3 backup opgeslagen", str(output_path))
 
-    def _run_high_quality_transcription(self, audio_path: Path) -> None:
-        transcript_path = high_quality_transcript_path_for(audio_path)
+    def _run_high_quality_transcription(
+        self,
+        audio_path: Path,
+        transcript_path: Path | None = None,
+        model_name: str = FAST_MODEL_NAME,
+    ) -> None:
+        if transcript_path is None:
+            transcript_path = high_quality_transcript_path_for(audio_path)
         transcriber = TranscriptionPipeline(
             high_quality_transcription_config(
                 self._transcriber.config.language,
                 self._config.model_cache_dir,
+                model_name=model_name,
             )
         )
         try:
@@ -1094,6 +1162,16 @@ class AppController(QObject):
         )
 
     def _handle_transcription_finished(self, transcript_path: str) -> None:
+        if self._hq_total > 0:
+            self._hq_done_paths.append(transcript_path)
+            if self._hq_queue:
+                self._start_next_high_quality()
+                return
+            if self._hq_total > 1:
+                self._finalize_high_quality_batch()
+                return
+            self._reset_high_quality_batch()
+
         self._preview_age_timer.stop()
         self._high_quality_started_at = None
         LOGGER.info("Transcription finished: %s", transcript_path)
@@ -1131,6 +1209,17 @@ class AppController(QObject):
         )
 
     def _handle_transcription_failed(self, error: str) -> None:
+        if self._hq_total > 0:
+            name = self._hq_current[0].name if self._hq_current else "onbekend"
+            self._hq_failures.append((name, error))
+            if self._hq_queue:
+                self._start_next_high_quality()
+                return
+            if self._hq_total > 1:
+                self._finalize_high_quality_batch()
+                return
+            self._reset_high_quality_batch()
+
         self._preview_age_timer.stop()
         self._high_quality_started_at = None
         LOGGER.warning("Transcription failed: %s", error)
@@ -1149,6 +1238,8 @@ class AppController(QObject):
         )
 
     def _handle_transcription_cancelled(self, transcript_path: str) -> None:
+        # Cancelling aborts the whole batch, not just the current file.
+        self._reset_high_quality_batch()
         self._preview_age_timer.stop()
         self._high_quality_started_at = None
         LOGGER.info("Transcription cancelled. Partial transcript: %s", transcript_path)
@@ -1166,6 +1257,54 @@ class AppController(QObject):
                 f"{self._state.preview_text}\n\nTranscriptie gestopt. "
                 f"Gedeeltelijke tekst opgeslagen:\n{transcript_path}"
             ),
+            transcript_open=True,
+        )
+
+    def _reset_high_quality_batch(self) -> None:
+        self._hq_queue = []
+        self._hq_total = 0
+        self._hq_current = None
+        self._hq_done_paths = []
+        self._hq_failures = []
+
+    def _finalize_high_quality_batch(self) -> None:
+        total = self._hq_total
+        done = list(self._hq_done_paths)
+        failures = list(self._hq_failures)
+        self._reset_high_quality_batch()
+        self._preview_age_timer.stop()
+        self._high_quality_started_at = None
+        LOGGER.info(
+            "High-quality batch finished: %d/%d saved, %d failed",
+            len(done),
+            total,
+            len(failures),
+        )
+
+        lines = [f"{len(done)} van {total} transcripten opgeslagen."]
+        if done:
+            lines.append("")
+            lines.extend(f"✓ {path}" for path in done)
+        if failures:
+            lines.append("")
+            lines.append("Mislukt:")
+            lines.extend(f"✗ {name}: {error}" for name, error in failures)
+
+        self._set_state(
+            status=RecorderStatus.IDLE,
+            last_update_seconds=None,
+            audio_level=0.0,
+            transcription_current_chunk=0,
+            transcription_total_chunks=0,
+            processing_label=None,
+            processing_progress_text=None,
+            error_message=(
+                "; ".join(f"{name}: {error}" for name, error in failures)
+                if failures
+                else None
+            ),
+            preview_kind=PreviewKind.SYSTEM,
+            preview_text="\n".join(lines),
             transcript_open=True,
         )
 

@@ -41,6 +41,7 @@ MANIFEST
 *.manifest
 *.spec
 !audiotranscriber.spec
+!audiotranscriber-macos.spec
 
 # Installer logs
 pip-log.txt

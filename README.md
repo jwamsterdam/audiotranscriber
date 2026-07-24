@@ -59,9 +59,10 @@ Expanded live captions:
 - User-friendly local/system messages in the transcript panel:
   - live captions are shown in white;
   - system and error messages are shown more quietly in light grey.
-- Post-processing for saved WAV files:
+- Post-processing for saved audio files:
   - `WAV to MP3 Backup` creates `*.backup.mp3`;
-  - `WAV to High Quality Transcript` creates `*.high-quality.txt`.
+  - `Audio to High Quality Transcript` creates `*.high-quality.txt` and accepts one
+    or more audio files at once (WAV, M4A, MP3, AAC, FLAC, OGG, and more).
 - GitHub Releases update check in production builds.
 - Model cache refresh action for clearing local Whisper model files.
 

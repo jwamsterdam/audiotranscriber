@@ -7,7 +7,7 @@ import sys
 from html import escape
 from pathlib import Path
 
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, QTimer
 from PySide6.QtCore import QUrl
 from PySide6.QtGui import QAction, QActionGroup, QDesktopServices, QIcon
 from PySide6.QtWidgets import (
@@ -34,6 +34,13 @@ from PySide6.QtWidgets import (
 
 from audiotranscriber.app_config import AppConfig
 from audiotranscriber.controllers.app_controller import AppController
+from audiotranscriber.pipelines.post_processing import (
+    FAST_MODEL_LABEL,
+    FAST_MODEL_NAME,
+    QUALITY_MODEL_LABEL,
+    QUALITY_MODEL_NAME,
+    high_quality_transcript_path_for,
+)
 from audiotranscriber.pipelines.recording import MicrophoneDevice
 from audiotranscriber.resources import resource_path
 from audiotranscriber.state import (
@@ -356,10 +363,23 @@ class RecorderStripWindow(QMainWindow):
         export_mp3_action.triggered.connect(self._select_wav_for_mp3_backup)
         menu.addAction(export_mp3_action)
 
-        high_quality_action = QAction("WAV to High Quality Transcript", menu)
-        high_quality_action.setEnabled(export_mp3_action.isEnabled())
-        high_quality_action.triggered.connect(self._select_wav_for_high_quality_transcript)
-        menu.addAction(high_quality_action)
+        fast_transcript_action = QAction("Audio to Transcript — Fast (small)", menu)
+        fast_transcript_action.setEnabled(export_mp3_action.isEnabled())
+        fast_transcript_action.triggered.connect(
+            lambda: self._select_audio_for_high_quality_transcript(
+                FAST_MODEL_NAME, FAST_MODEL_LABEL
+            )
+        )
+        menu.addAction(fast_transcript_action)
+
+        quality_transcript_action = QAction("Audio to Transcript — Quality (turbo)", menu)
+        quality_transcript_action.setEnabled(export_mp3_action.isEnabled())
+        quality_transcript_action.triggered.connect(
+            lambda: self._select_audio_for_high_quality_transcript(
+                QUALITY_MODEL_NAME, QUALITY_MODEL_LABEL
+            )
+        )
+        menu.addAction(quality_transcript_action)
 
         menu.addSeparator()
 
@@ -808,14 +828,79 @@ class RecorderStripWindow(QMainWindow):
         if path is not None and self._controller is not None:
             self._controller.export_mp3_backup_for(path)
 
-    def _select_wav_for_high_quality_transcript(self) -> None:
-        path = self._select_recording_wav("Select WAV for High Quality Transcript")
-        if path is not None and self._controller is not None:
-            language = self._selected_transcription_language()
-            if not self._confirm_high_quality_language(language):
-                return
-            self._controller.set_transcription_language(language)
-            self._controller.create_high_quality_transcript_for(path)
+    def _select_audio_for_high_quality_transcript(
+        self, model_name: str, model_label: str
+    ) -> None:
+        if self._controller is None:
+            return
+
+        recordings_dir = self._controller.recordings_dir
+        recordings_dir.mkdir(parents=True, exist_ok=True)
+        file_paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            f"Select audio to transcribe ({model_label})",
+            str(recordings_dir.resolve()),
+            "Audio files (*.wav *.m4a *.mp3 *.aac *.flac *.ogg *.opus *.wma *.mp4 *.mov)",
+        )
+        if not file_paths:
+            return
+
+        language = self._selected_transcription_language()
+        if not self._confirm_high_quality_language(language):
+            return
+
+        pairs: list[tuple[Path, Path]] = []
+        for file_path in file_paths:
+            source = Path(file_path)
+            output_path = self._resolve_high_quality_output_path(source)
+            if output_path is None:
+                continue
+            pairs.append((source, output_path))
+
+        if not pairs:
+            return
+
+        self._controller.set_transcription_language(language)
+        self._controller.create_high_quality_transcripts_for(
+            pairs, model_name=model_name, model_label=model_label
+        )
+
+    def _resolve_high_quality_output_path(self, source_wav: Path) -> Path | None:
+        """Return a writable destination for the transcript, asking the user if needed.
+
+        The transcript is written next to the source WAV by default, but that
+        folder can be read-only or blocked by macOS privacy protection (e.g. the
+        Music library). When it is not writable we ask the user to pick a folder
+        instead of failing after a long transcription.
+        """
+        default_path = high_quality_transcript_path_for(source_wav.resolve())
+        if _can_write_file(default_path):
+            return default_path
+
+        QMessageBox.information(
+            self,
+            "Choose transcript location",
+            (
+                "The transcript cannot be saved next to the source file because "
+                "that folder is read-only or blocked by macOS privacy settings:\n\n"
+                f"{default_path.parent}\n\n"
+                "Please choose where to save the transcript."
+            ),
+        )
+
+        fallback_dir = default_path.parent
+        if self._controller is not None:
+            fallback_dir = self._controller.recordings_dir
+            fallback_dir.mkdir(parents=True, exist_ok=True)
+        chosen, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save high-quality transcript",
+            str((fallback_dir / default_path.name).resolve()),
+            "Text files (*.txt)",
+        )
+        if not chosen:
+            return None
+        return Path(chosen)
 
     def _select_recording_wav(self, title: str) -> Path | None:
         if self._controller is None:
@@ -982,7 +1067,16 @@ class RecorderStripWindow(QMainWindow):
         else:
             self.transcript_text.setHtml(self._render_preview_message(text, kind))
         if was_at_bottom:
-            scrollbar.setValue(scrollbar.maximum())
+            self._scroll_transcript_to_bottom()
+
+    def _scroll_transcript_to_bottom(self) -> None:
+        scrollbar = self.transcript_text.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
+        # For a long document the layout after setPlainText/setHtml may still be
+        # pending, so scrollbar.maximum() is stale here. Re-apply on the next
+        # event-loop tick once the true maximum is known, otherwise auto-scroll
+        # silently stops and the view jumps back to the top on every update.
+        QTimer.singleShot(0, lambda: scrollbar.setValue(scrollbar.maximum()))
 
     @staticmethod
     def _render_preview_message(text: str, kind: PreviewKind) -> str:
@@ -1057,6 +1151,28 @@ class RecorderStripWindow(QMainWindow):
         minutes = (seconds % 3600) // 60
         secs = seconds % 60
         return f"{hours:02}:{minutes:02}:{secs:02}"
+
+
+def _can_write_file(path: Path) -> bool:
+    """Return True if ``path`` can actually be written.
+
+    ``os.access`` is unreliable on macOS because privacy protection (TCC) blocks
+    writes at the syscall level even when the permission bits look fine. TCC in
+    the Music/Photos libraries is also extension-aware (a dotfile may be allowed
+    while a ``.txt`` is not), so we must probe with the exact target path rather
+    than a generic temp file in the directory.
+    """
+    existed = path.exists()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # Append mode so we never truncate an existing transcript.
+        with open(path, "a", encoding="utf-8"):
+            pass
+        if not existed:
+            path.unlink()
+        return True
+    except OSError:
+        return False
 
 
 def _clean_device_name(name: str) -> str:
